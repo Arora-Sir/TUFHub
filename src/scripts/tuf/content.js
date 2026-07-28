@@ -1,6 +1,6 @@
 /**
  * TUFHub Content Script (ISOLATED World)
- * Multi-layer detection + Conflict Recovery + Fail-safe Toast
+ * Strict Submit Trigger: ONLY activates on explicit Submit button clicks / Ctrl+Enter!
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -11,7 +11,7 @@ import { getStats, updateStats, isDebounced, safeGetStorage, enqueueOfflineSync,
 import { showToast } from './toast.js';
 import { LANGUAGE_MAP, convertToSlug, addLeadingZeros, sanitizePathSegment } from '../util.js';
 
-console.log('[TUFHub Debug] Robust content script loaded in isolated world.');
+console.log('[TUFHub Debug] Content script loaded with strict submit trigger.');
 
 let lastSyncTimestamp = 0;
 let isUserSubmitting = false;
@@ -23,8 +23,9 @@ window.addEventListener('TUFHUB_ACCEPTED_SUBMISSION', async (event) => {
 
   if (!data) return;
 
+  // STRICT GUARD: Must be in active user submission window
   if (!isUserSubmitting) {
-    console.log('[TUFHub Debug] Ignored event - user did not initiate submission.');
+    console.log('[TUFHub Debug] Ignored event - user is not actively submitting.');
     return;
   }
 
@@ -35,8 +36,10 @@ window.addEventListener('TUFHUB_ACCEPTED_SUBMISSION', async (event) => {
     return;
   }
 
-  if (Date.now() - lastSyncTimestamp < 2000) {
-    console.log('[TUFHub Debug] Duplicate event ignored (within 2s threshold).');
+  // Prevent double sync within 5 seconds
+  if (Date.now() - lastSyncTimestamp < 5000) {
+    console.log('[TUFHub Debug] Duplicate event ignored (within 5s threshold).');
+    isUserSubmitting = false;
     return;
   }
 
@@ -217,7 +220,7 @@ function get2TierHierarchyFromDOM() {
 }
 
 // -------------------------------------------------------------
-// Universal Capture-Phase Click & Keyboard Shortcut Listener
+// STRICT Submit Click & Keyboard Shortcut Listener
 // -------------------------------------------------------------
 function setupSubmitClickListeners() {
   document.addEventListener('click', (e) => {
@@ -225,65 +228,54 @@ function setupSubmitClickListeners() {
     if (!target) return;
 
     const text = (target.innerText || target.getAttribute('aria-label') || target.title || '').toLowerCase();
-    const html = (target.innerHTML || '').toLowerCase();
+    const className = (target.className || '').toString().toLowerCase();
 
-    if (text.includes('try') || text.includes('run') || text.includes('reset') || text.includes('console')) {
+    // Ignore explicit Try, Run, Reset, Console, Hints, Dislike, Like buttons
+    if (
+      text.includes('try') || 
+      text.includes('run') || 
+      text.includes('reset') || 
+      text.includes('console') ||
+      text.includes('hint') ||
+      text.includes('doubt') ||
+      text.includes('fact') ||
+      text.includes('company') ||
+      className.includes('accordion')
+    ) {
       return;
     }
 
+    // STRICT MATCH: Must contain "submit" in text, title, aria-label, or className!
     const isSubmit = 
       text.includes('submit') || 
-      html.includes('submit') ||
-      target.className.toString().toLowerCase().includes('submit') ||
-      html.includes('rocket') ||
-      html.includes('svg');
+      target.getAttribute('aria-label')?.toLowerCase().includes('submit') ||
+      target.getAttribute('title')?.toLowerCase().includes('submit') ||
+      className.includes('submit');
 
     if (isSubmit) {
-      console.log('[TUFHub Debug] Universal Submit button click detected!');
+      console.log('[TUFHub Debug] Explicit Submit button click detected!');
       triggerUserSubmissionWindow();
     }
-  }, true);
+  }, true); // useCapture = true
 
   document.addEventListener('keydown', (e) => {
+    // Capture Ctrl + Enter / Cmd + Enter
     if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'Enter' || e.keyCode === 13)) {
-      console.log('[TUFHub Debug] Capture phase Ctrl+Enter detected!');
+      console.log('[TUFHub Debug] Explicit Ctrl+Enter shortcut detected!');
       triggerUserSubmissionWindow();
     }
-  }, true);
+  }, true); // useCapture = true
 }
 
 function triggerUserSubmissionWindow() {
   isUserSubmitting = true;
   clearTimeout(submitTimeout);
 
+  // Active submission window stays open for 15s max waiting for API verdict
   submitTimeout = setTimeout(() => {
     isUserSubmitting = false;
-    console.log('[TUFHub Debug] User submission window closed (20s timeout).');
-  }, 20000);
-
-  pollForAcceptedVerdict();
-}
-
-function pollForAcceptedVerdict() {
-  let checks = 0;
-  console.log('[TUFHub Debug] Polling DOM for verdict after SUBMIT click...');
-  const interval = setInterval(() => {
-    checks++;
-    if (!isUserSubmitting) {
-      clearInterval(interval);
-      return;
-    }
-
-    const bodyText = document.body.innerText || '';
-    if (bodyText.includes('Accepted') || bodyText.includes('ACCEPTED') || bodyText.includes('Correct Answer')) {
-      console.log('[TUFHub Debug] Verdict text confirmed via polling!');
-      clearInterval(interval);
-      if (Date.now() - lastSyncTimestamp > 2000) {
-        window.dispatchEvent(new CustomEvent('TUFHUB_TRIGGER_MONACO_SCRAPE'));
-      }
-    }
-    if (checks > 30) clearInterval(interval);
-  }, 500);
+    console.log('[TUFHub Debug] User submission window closed (15s timeout).');
+  }, 15000);
 }
 
 // Initialize listeners
