@@ -30,7 +30,12 @@ export const LANGUAGE_MAP = {
   rust: 'rs',
   'C#': 'cs',
   csharp: 'cs',
-  SQL: 'sql'
+  SQL: 'sql',
+  sql: 'sql',
+  mysql: 'sql',
+  postgresql: 'sql',
+  sqlite: 'sql',
+  oracle: 'sql'
 };
 
 export function convertToSlug(title) {
@@ -60,7 +65,7 @@ export function sanitizePathSegment(segment) {
   let cleaned = segment
     .toString()
     .replace(/[()?:*<>"|]/g, '')
-    .replace(/\s+/g, ' ')
+    .replace(/\s+/g, '-')
     .trim();
   
   if (cleaned.length === 0 || cleaned.length > 50) return 'General';

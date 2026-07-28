@@ -1,5 +1,5 @@
 /**
- * TUFHub Root README.md Enhanced Builder (Multi-Language Table Index)
+ * TUFHub Root README.md Enhanced Builder (Multi-Category Table Index)
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -47,7 +47,7 @@ function generateRootReadmeMarkdown(stats) {
   const hard = stats ? stats.hard || 0 : 0;
   const lastSync = new Date().toISOString().split('T')[0];
 
-  const header = `# 🚀 TUF-Solutions
+  let markdown = `# 🚀 TUF-Solutions
 
 > Auto-synced using [TUFHub](https://github.com/Arora-Sir/TUFHub) — TakeUForward (TUF+) Solutions Repository
 
@@ -65,25 +65,23 @@ function generateRootReadmeMarkdown(stats) {
 | :---: | :--- | :---: | :---: | :--- |
 `;
 
-  let rows = '';
   const problems = stats && stats.problems ? stats.problems : {};
   const slugs = Object.keys(problems).sort();
 
   if (slugs.length === 0) {
-    rows += `| - | No problems synced yet | - | - | - |\n`;
+    markdown += `| - | No problems synced yet | - | - | - |\n`;
   } else {
     slugs.forEach((slug, idx) => {
       const p = problems[slug];
       const numStr = (idx + 1).toString().padStart(4, '0');
       const folderUrl = `./${p.folderPath.split('/').map(encodeURIComponent).join('/')}`;
       
-      const diffBadge = p.difficulty.toLowerCase().includes('easy')
+      const diffBadge = (p.difficulty || 'Medium').toLowerCase().includes('easy')
         ? '🟢 Easy'
-        : p.difficulty.toLowerCase().includes('hard')
+        : (p.difficulty || 'Medium').toLowerCase().includes('hard')
         ? '🔴 Hard'
         : '🟡 Medium';
 
-      // Multi-language link builder
       let solutionLinks = '';
       const languages = p.languages || {};
       const langExts = Object.keys(languages);
@@ -100,11 +98,12 @@ function generateRootReadmeMarkdown(stats) {
         solutionLinks = `[${ext.toUpperCase()}](${fileUrl})`;
       }
 
-      rows += `| ${numStr} | [${p.title}](${folderUrl}) | ${solutionLinks} | ${diffBadge} | \`${p.mainTopic}\` / \`${p.subTopic}\` |\n`;
+      const catBadge = p.folderPath ? p.folderPath.split('/')[0] : 'DSA';
+      markdown += `| ${numStr} | [${p.title}](${folderUrl}) | ${solutionLinks} | ${diffBadge} | \`${catBadge}\` / \`${p.mainTopic || 'General'}\` |\n`;
     });
   }
 
-  const footer = `\n---\n*Generated with ❤️ by [TUFHub](https://github.com/Arora-Sir/TUFHub)*\n`;
+  markdown += `\n---\n*Generated with ❤️ by [TUFHub](https://github.com/Arora-Sir/TUFHub)*\n`;
 
-  return header + rows + footer;
+  return markdown;
 }

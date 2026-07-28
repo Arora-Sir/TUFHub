@@ -1,17 +1,18 @@
 /**
  * TUFHub Content Script (ISOLATED World)
- * Sequential Commit Chain: Prevents Git branch race conditions & 409 conflicts
+ * Multi-Category Routing Engine: Prevents Git branch race conditions & 409 conflicts
  * Author: Mohit Arora (@Arora-Sir)
  */
 
 import { buildProblemReadme } from './readme.js';
 import { updateRootReadme } from './rootReadme.js';
 import { uploadToGitHub } from './uploader.js';
+import { resolveHierarchy } from './router.js';
 import { getStats, updateStats, isDebounced, safeGetStorage, enqueueOfflineSync, getOfflineQueue, clearOfflineQueue } from './stats.js';
 import { showToast } from './toast.js';
-import { LANGUAGE_MAP, convertToSlug, addLeadingZeros, sanitizePathSegment } from '../util.js';
+import { LANGUAGE_MAP, convertToSlug, addLeadingZeros } from '../util.js';
 
-console.log('%c[TUFHub Content Script] 📥 Dual-channel sync engine initialized.', 'color: #8b5cf6; font-weight: bold; font-size: 13px;');
+console.log('%c[TUFHub Content Script] 📥 Multi-category sync engine initialized.', 'color: #8b5cf6; font-weight: bold; font-size: 13px;');
 
 let lastSyncTimestamp = 0;
 let isUserSubmitting = false;
@@ -74,13 +75,10 @@ async function executeGitHubSync(data) {
   }
 
   const slug = addLeadingZeros(convertToSlug(rawTitle));
-  const { mainTopic, subTopic } = get2TierHierarchyFromDOM();
+  const routeInfo = resolveHierarchy(data);
+  const folderPath = `${routeInfo.folderPath}/${slug}`;
 
-  const cleanMain = sanitizePathSegment(mainTopic);
-  const cleanSub = sanitizePathSegment(subTopic);
-  const folderPath = `${cleanMain}/${cleanSub}/${slug}`;
-
-  console.log('[TUFHub Sync Engine] 🚀 Target Hierarchy Path:', folderPath);
+  console.log(`[TUFHub Sync Engine] 🚀 Category: [${routeInfo.category}] Target Path: ${folderPath}`);
 
   const debounced = await isDebounced(slug, 5000);
   if (debounced) {
@@ -89,7 +87,7 @@ async function executeGitHubSync(data) {
     return;
   }
 
-  showToast(`Syncing ${rawTitle} to GitHub...`, 'syncing');
+  showToast(`Syncing ${rawTitle} [${routeInfo.category}] to GitHub...`, 'syncing');
 
   try {
     const storage = await safeGetStorage(['tufhub_token', 'tufhub_hook', 'mode_type']);
@@ -104,7 +102,7 @@ async function executeGitHubSync(data) {
       return;
     }
 
-    const ext = LANGUAGE_MAP[data.language] || 'cpp';
+    const ext = LANGUAGE_MAP[(data.language || '').toLowerCase()] || (routeInfo.category === 'SQL' ? 'sql' : 'cpp');
     const codeFileName = `solution.${ext}`;
 
     const problemReadmeContent = buildProblemReadme({
@@ -120,7 +118,7 @@ async function executeGitHubSync(data) {
     console.log(`[TUFHub Sync Engine] 📦 File: ${folderPath}/${codeFileName}`);
     console.log('[TUFHub Sync Engine] 📤 Sequential upload chain initiated for repo:', hook);
 
-    // 1. Upload solution code FIRST (sequential chain prevents branch HEAD race conditions!)
+    // 1. Upload solution code FIRST
     const codeSha = await uploadToGitHub(
       token,
       hook,
@@ -142,11 +140,14 @@ async function executeGitHubSync(data) {
     );
     console.log('[TUFHub Sync Engine] ✅ Problem README uploaded successfully!');
 
+    const mainTopic = routeInfo.categoryPath;
+    const subTopic = routeInfo.category;
+
     // 3. Update local stats
     const updatedStats = await updateStats(data.difficulty, slug, {
       [codeFileName]: codeSha,
       'README.md': readmeSha
-    }, cleanMain, cleanSub, {
+    }, mainTopic, subTopic, {
       title: rawTitle,
       codeFileName,
       folderPath
@@ -154,7 +155,7 @@ async function executeGitHubSync(data) {
 
     // 4. Update root README index THIRD
     try {
-      await updateRootReadme(token, hook, cleanMain, cleanSub, slug, updatedStats);
+      await updateRootReadme(token, hook, mainTopic, subTopic, slug, updatedStats);
       console.log('[TUFHub Sync Engine] ✅ Root README updated successfully!');
     } catch (rootErr) {
       console.warn('[TUFHub Sync Engine] ⚠️ Root README update warning (non-critical):', rootErr);
@@ -265,7 +266,7 @@ function triggerDOMVerdictWatcher() {
 
             executeGitHubSync({
               code,
-              language: 'cpp',
+              language: window.location.pathname.includes('sql') ? 'sql' : 'cpp',
               title: titleElem ? titleElem.innerText.trim() : extractTitleFromUrl(),
               difficulty: diffElem ? diffElem.innerText.trim() : 'Medium',
               description: '',
@@ -297,37 +298,6 @@ function extractTitleFromUrl() {
     }
   } catch (e) {}
   return '';
-}
-
-function get2TierHierarchyFromDOM() {
-  let mainTopic = 'DSA';
-  let subTopic = 'General';
-
-  try {
-    const pathname = window.location.pathname.toLowerCase();
-    
-    if (pathname.includes('linked-list') || pathname.includes('ll')) mainTopic = 'Linked List';
-    else if (pathname.includes('array') || pathname.includes('sorting')) mainTopic = 'Arrays';
-    else if (pathname.includes('binary-search')) mainTopic = 'Binary Search';
-    else if (pathname.includes('recursion')) mainTopic = 'Recursion';
-    else if (pathname.includes('tree') || pathname.includes('bst')) mainTopic = 'Trees';
-    else if (pathname.includes('graph')) mainTopic = 'Graphs';
-    else if (pathname.includes('dp') || pathname.includes('dynamic-programming')) mainTopic = 'Dynamic Programming';
-    else if (pathname.includes('string')) mainTopic = 'Strings';
-    else if (pathname.includes('stack') || pathname.includes('queue')) mainTopic = 'Stack & Queue';
-    else if (pathname.includes('bit')) mainTopic = 'Bit Manipulation';
-    else if (pathname.includes('greedy')) mainTopic = 'Greedy';
-
-    const bodyText = document.body.innerText || '';
-    if (bodyText.includes('FAQs (Medium)') || bodyText.includes('FAQs Medium')) subTopic = 'FAQs Medium';
-    else if (bodyText.includes('FAQs (Hard)') || bodyText.includes('FAQs Hard')) subTopic = 'FAQs Hard';
-    else if (bodyText.includes('Fundamentals (Single LL)') || bodyText.includes('Fundamentals Single LL')) subTopic = 'Fundamentals Single LL';
-    else if (bodyText.includes('Fundamentals (Doubly LL)') || bodyText.includes('Fundamentals Doubly LL')) subTopic = 'Fundamentals Doubly LL';
-    else if (bodyText.includes('Logic Building')) subTopic = 'Logic Building';
-
-  } catch (e) {}
-
-  return { mainTopic, subTopic };
 }
 
 // Initialize listeners
