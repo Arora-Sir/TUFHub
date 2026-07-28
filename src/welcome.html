@@ -14,41 +14,41 @@
       min-height: 100vh;
       width: 100vw;
       margin: 0;
-      padding: 28px 0;
+      padding: 32px 0;
       display: flex;
       justify-content: center;
       align-items: center;
       background: #0d0d0f;
-      font-size: 15px;
+      font-size: 16px;
       overflow-y: auto;
       box-sizing: border-box;
     }
     .welcome-card {
-      width: 540px;
+      width: 600px;
       max-width: 92vw;
-      padding: 28px;
-      border-radius: 18px;
+      padding: 32px;
+      border-radius: 20px;
       box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
       margin: auto;
       box-sizing: border-box;
     }
     .step-title {
-      font-size: 1.3rem;
+      font-size: 1.4rem;
       font-weight: 700;
       color: var(--accent-orange);
-      margin-bottom: 14px;
+      margin-bottom: 16px;
     }
     .input-field {
       width: 100%;
-      padding: 11px 14px;
-      margin-bottom: 14px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
       border-radius: var(--radius-md);
       border: 1px solid var(--card-border);
       background: rgba(0, 0, 0, 0.45);
       color: white;
       box-sizing: border-box;
       font-family: inherit;
-      font-size: 0.92rem;
+      font-size: 0.96rem;
     }
     .input-field:focus {
       outline: none;
@@ -58,15 +58,15 @@
     .toggle-row {
       display: flex;
       align-items: center;
-      gap: 8px;
-      margin-bottom: 16px;
-      font-size: 0.88rem;
+      gap: 10px;
+      margin-bottom: 18px;
+      font-size: 0.92rem;
     }
     .helper-text {
-      font-size: 0.9rem;
+      font-size: 0.96rem;
       color: var(--text-muted);
-      margin-bottom: 14px;
-      line-height: 1.5;
+      margin-bottom: 16px;
+      line-height: 1.55;
     }
     .helper-link {
       color: var(--accent-orange);
@@ -79,13 +79,13 @@
     }
     .tab-row {
       display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
+      gap: 10px;
+      margin-bottom: 18px;
     }
     .tab-btn {
       flex: 1;
-      padding: 9px 12px;
-      font-size: 0.88rem;
+      padding: 10px 14px;
+      font-size: 0.92rem;
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid var(--card-border);
       color: var(--text-muted);
@@ -104,31 +104,31 @@
       align-items: center;
       justify-content: space-between;
       background: rgba(0, 0, 0, 0.55);
-      padding: 8px 12px;
+      padding: 10px 14px;
       border-radius: var(--radius-md);
       border: 1px solid rgba(255, 255, 255, 0.12);
-      margin: 8px 0 14px 0;
-      font-size: 0.85rem;
+      margin: 10px 0 16px 0;
+      font-size: 0.88rem;
       word-break: break-all;
     }
     .instruction-list {
-      margin: 8px 0 14px 18px;
+      margin: 10px 0 16px 20px;
       padding: 0;
-      font-size: 0.88rem;
+      font-size: 0.94rem;
       color: var(--text-muted);
-      line-height: 1.6;
+      line-height: 1.65;
     }
     .profile-cta {
-      font-size: 0.95rem !important;
-      padding: 10px 16px !important;
+      font-size: 1.0rem !important;
+      padding: 11px 18px !important;
     }
   </style>
 </head>
 <body>
   <div class="card welcome-card">
-    <div class="brand" style="margin-bottom: 20px;">
-      <span class="logo-icon" style="font-size: 2rem;">🔗</span>
-      <span class="brand-title" style="font-size: 1.6rem;">Welcome to TUFHub</span>
+    <div class="brand" style="margin-bottom: 22px;">
+      <span class="logo-icon" style="font-size: 2.1rem;">🔗</span>
+      <span class="brand-title" style="font-size: 1.7rem;">Welcome to TUFHub</span>
     </div>
 
     <!-- Step 1: Connect -->
@@ -147,7 +147,7 @@
         </p>
         <ol class="instruction-list">
           <li>
-            👉 <a href="https://github.com/settings/tokens/new?description=TUFHub&scopes=repo" target="_blank" rel="noopener noreferrer" class="helper-link">Click here to generate token on GitHub</a> (Pre-configured with repo permissions)
+            <a href="https://github.com/settings/tokens/new?description=TUFHub&scopes=repo" target="_blank" rel="noopener noreferrer" class="helper-link">Click here to generate token on GitHub</a> (Pre-configured with repo permissions)
           </li>
           <li>Set Expiration to <strong>No expiration</strong> (or your preferred duration).</li>
           <li>Scroll down and click <strong>Generate token</strong>, then copy the generated token.</li>
@@ -163,7 +163,7 @@
         </p>
         <ol class="instruction-list">
           <li>
-            👉 <a href="https://github.com/settings/applications/new" target="_blank" rel="noopener noreferrer" class="helper-link">Click here to register a new OAuth App on GitHub</a>
+            <a href="https://github.com/settings/applications/new" target="_blank" rel="noopener noreferrer" class="helper-link">Click here to register a new OAuth App on GitHub</a>
           </li>
           <li>Set Application Name to <code>TUFHub</code> and Homepage URL to <code>https://github.com/Arora-Sir/TUFHub</code>.</li>
           <li>Set <strong>Authorization callback URL</strong> to your Chrome Extension redirect URI below:</li>
@@ -171,7 +171,7 @@
 
         <div class="code-box">
           <code id="callback-uri-text">https://...chromiumapp.org/</code>
-          <button id="copy-callback-btn" class="copy-chip" style="font-size: 0.78rem; padding: 4px 10px;">Copy Callback URL</button>
+          <button id="copy-callback-btn" class="copy-chip" style="font-size: 0.8rem; padding: 4px 10px;">Copy Callback URL</button>
         </div>
 
         <input type="text" id="client-id-input" class="input-field" value="Ov23liKuq2RDSbo3gYPo" placeholder="GitHub Client ID" />
@@ -197,8 +197,8 @@
     <!-- Step 3: All Set -->
     <div id="step-3" class="step-box hidden">
       <div class="step-title">🎉 You're All Set!</div>
-      <p class="helper-text" style="margin-bottom: 24px;">Your solutions will now auto-sync every time you get an Accepted verdict on TUF+.</p>
-      <div style="display: flex; gap: 12px;">
+      <p class="helper-text" style="margin-bottom: 26px;">Your solutions will now auto-sync every time you get an Accepted verdict on TUF+.</p>
+      <div style="display: flex; gap: 14px;">
         <a href="https://takeuforward.org/plus" target="_blank" rel="noopener noreferrer" class="profile-cta primary-btn">Go to TUF+ →</a>
         <a id="welcome-repo-link" href="#" target="_blank" rel="noopener noreferrer" class="profile-cta secondary-btn">View Repository</a>
       </div>
