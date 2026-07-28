@@ -22,10 +22,30 @@ document.addEventListener('DOMContentLoaded', () => {
   const clientSecretInput = document.getElementById('client-secret-input');
   const authBtn = document.getElementById('auth-btn');
 
+  const callbackUriText = document.getElementById('callback-uri-text');
+  const copyCallbackBtn = document.getElementById('copy-callback-btn');
+
   const createRepoBtn = document.getElementById('create-repo-btn');
   const repoNameInput = document.getElementById('repo-name-input');
   const privateToggle = document.getElementById('private-toggle');
   const welcomeRepoLink = document.getElementById('welcome-repo-link');
+
+  // Populate Chrome Identity Callback Redirect URI
+  const redirectUri = chrome.identity ? chrome.identity.getRedirectURL() : 'https://<extension-id>.chromiumapp.org/';
+  if (callbackUriText) {
+    callbackUriText.innerText = redirectUri;
+  }
+
+  if (copyCallbackBtn) {
+    copyCallbackBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(redirectUri).then(() => {
+        copyCallbackBtn.innerText = 'Copied!';
+        setTimeout(() => {
+          copyCallbackBtn.innerText = 'Copy Callback URL';
+        }, 2000);
+      });
+    });
+  }
 
   // Tab switching
   tabPat.addEventListener('click', () => {

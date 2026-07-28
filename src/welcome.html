@@ -12,23 +12,24 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      background: #09090b;
+      background: #0d0d0f;
     }
     .welcome-card {
-      width: 480px;
+      width: 520px;
       max-width: 92vw;
       padding: 32px;
+      border-radius: 18px;
     }
     .step-title {
-      font-size: 1.2rem;
+      font-size: 1.25rem;
       font-weight: 700;
       color: var(--accent-orange);
-      margin-bottom: 12px;
+      margin-bottom: 14px;
     }
     .input-field {
       width: 100%;
-      padding: 10px 12px;
-      margin-bottom: 12px;
+      padding: 11px 14px;
+      margin-bottom: 14px;
       border-radius: var(--radius-md);
       border: 1px solid var(--card-border);
       background: rgba(0, 0, 0, 0.4);
@@ -40,45 +41,70 @@
     .input-field:focus {
       outline: none;
       border-color: var(--accent-orange);
+      box-shadow: 0 0 10px rgba(249, 115, 22, 0.2);
     }
     .toggle-row {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 16px;
+      margin-bottom: 18px;
       font-size: 0.85rem;
     }
     .helper-text {
-      font-size: 0.8rem;
+      font-size: 0.83rem;
       color: var(--text-muted);
-      margin-bottom: 14px;
-      line-height: 1.4;
+      margin-bottom: 16px;
+      line-height: 1.5;
     }
     .helper-link {
       color: var(--accent-orange);
       text-decoration: underline;
+      font-weight: 600;
       cursor: pointer;
+    }
+    .helper-link:hover {
+      color: var(--accent-orange-hover);
     }
     .tab-row {
       display: flex;
       gap: 8px;
-      margin-bottom: 16px;
+      margin-bottom: 18px;
     }
     .tab-btn {
       flex: 1;
-      padding: 6px;
-      font-size: 0.8rem;
+      padding: 8px 12px;
+      font-size: 0.82rem;
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid var(--card-border);
       color: var(--text-muted);
       border-radius: var(--radius-md);
       cursor: pointer;
+      transition: var(--transition-spring);
     }
     .tab-btn.active {
       background: rgba(249, 115, 22, 0.15);
       border-color: var(--accent-orange);
       color: var(--accent-orange);
       font-weight: 600;
+    }
+    .code-box {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      margin: 8px 0 14px 0;
+      font-size: 0.78rem;
+      word-break: break-all;
+    }
+    .instruction-list {
+      margin: 8px 0 14px 18px;
+      padding: 0;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.6;
     }
   </style>
 </head>
@@ -94,28 +120,46 @@
       <div class="step-title">Step 1: Connect your GitHub Account</div>
 
       <div class="tab-row">
-        <button id="tab-pat" class="tab-btn active">Personal Access Token (Recommended)</button>
-        <button id="tab-oauth" class="tab-btn">GitHub OAuth App</button>
+        <button id="tab-pat" class="tab-btn active">🔑 Personal Access Token (Fastest)</button>
+        <button id="tab-oauth" class="tab-btn">🌐 GitHub OAuth App</button>
       </div>
 
-      <!-- PAT Auth -->
+      <!-- PAT Auth Box -->
       <div id="pat-auth-box">
         <p class="helper-text">
-          Create a GitHub Personal Access Token with <code>repo</code> scope to allow TUFHub to commit solutions.
-          <br><br>
-          👉 <a href="https://github.com/settings/tokens/new?description=TUFHub&scopes=repo" target="_blank" rel="noopener noreferrer" class="helper-link">Click here to generate token on GitHub</a> (Pre-configured with repo permission)
+          Generate a GitHub Personal Access Token (PAT) with <code>repo</code> scope to allow TUFHub to automatically commit your solved problems.
         </p>
+        <ol class="instruction-list">
+          <li>
+            👉 <a href="https://github.com/settings/tokens/new?description=TUFHub&scopes=repo" target="_blank" rel="noopener noreferrer" class="helper-link">Click here to generate token on GitHub</a> (Pre-configured with repo permissions)
+          </li>
+          <li>Set Expiration to <strong>No expiration</strong> (or your preferred duration).</li>
+          <li>Scroll down and click <strong>Generate token</strong>, then copy the generated token.</li>
+        </ol>
         <input type="password" id="pat-input" class="input-field" placeholder="Paste GitHub Token (ghp_... or github_pat_...)" />
         <button id="save-pat-btn" class="profile-cta primary-btn">Save Token & Continue →</button>
       </div>
 
-      <!-- OAuth Auth -->
+      <!-- OAuth Auth Box -->
       <div id="oauth-auth-box" class="hidden">
         <p class="helper-text">
-          Authenticate using your registered GitHub OAuth App (Client ID: <code>Ov23liKuq2RDSbo3gYPo</code>).
+          Connect using a registered GitHub OAuth Application.
         </p>
+        <ol class="instruction-list">
+          <li>
+            👉 <a href="https://github.com/settings/applications/new" target="_blank" rel="noopener noreferrer" class="helper-link">Click here to register a new OAuth App on GitHub</a>
+          </li>
+          <li>Set Application Name to <code>TUFHub</code> and Homepage URL to <code>https://github.com/Arora-Sir/TUFHub</code>.</li>
+          <li>Set <strong>Authorization callback URL</strong> to your Chrome Extension redirect URI below:</li>
+        </ol>
+
+        <div class="code-box">
+          <code id="callback-uri-text">https://...chromiumapp.org/</code>
+          <button id="copy-callback-btn" class="copy-chip">Copy Callback URL</button>
+        </div>
+
         <input type="text" id="client-id-input" class="input-field" value="Ov23liKuq2RDSbo3gYPo" placeholder="GitHub Client ID" />
-        <input type="password" id="client-secret-input" class="input-field" placeholder="GitHub Client Secret (from developer settings)" />
+        <input type="password" id="client-secret-input" class="input-field" placeholder="GitHub Client Secret (from Developer Settings)" />
         <button id="auth-btn" class="profile-cta primary-btn">Launch GitHub OAuth Flow</button>
       </div>
     </div>
@@ -123,7 +167,7 @@
     <!-- Step 2: Create Repo -->
     <div id="step-2" class="step-box hidden">
       <div class="step-title">Step 2: Create Solutions Repository</div>
-      <p class="card-subtitle">Set up the dedicated repository to store your code and READMEs.</p>
+      <p class="helper-text">Set up a dedicated repository on your GitHub account to store your code and problem READMEs.</p>
       <input type="text" id="repo-name-input" class="input-field" value="TUF-Solutions" placeholder="Repository Name">
       
       <div class="toggle-row">
@@ -137,10 +181,10 @@
     <!-- Step 3: All Set -->
     <div id="step-3" class="step-box hidden">
       <div class="step-title">🎉 You're All Set!</div>
-      <p class="card-subtitle" style="margin-bottom: 24px;">Your solutions will now auto-sync every time you get an Accepted verdict on TUF+.</p>
+      <p class="helper-text" style="margin-bottom: 24px;">Your solutions will now auto-sync every time you get an Accepted verdict on TUF+.</p>
       <div style="display: flex; gap: 12px;">
         <a href="https://takeuforward.org/plus" target="_blank" rel="noopener noreferrer" class="profile-cta primary-btn">Go to TUF+ →</a>
-        <a id="welcome-repo-link" href="#" target="_blank" rel="noopener noreferrer" class="profile-cta secondary-btn">View Repo</a>
+        <a id="welcome-repo-link" href="#" target="_blank" rel="noopener noreferrer" class="profile-cta secondary-btn">View Repository</a>
       </div>
     </div>
   </div>
