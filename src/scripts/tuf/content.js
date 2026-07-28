@@ -1,6 +1,6 @@
 /**
  * TUFHub Content Script (ISOLATED World)
- * Direct Listener: Syncs cleanly whenever an accepted submission HTTP payload fires!
+ * Dual-Channel Sync Engine: Network Interceptor + DOM Verdict Watcher
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -11,9 +11,11 @@ import { getStats, updateStats, isDebounced, safeGetStorage, enqueueOfflineSync,
 import { showToast } from './toast.js';
 import { LANGUAGE_MAP, convertToSlug, addLeadingZeros, sanitizePathSegment } from '../util.js';
 
-console.log('%c[TUFHub Content Script] 📥 Active submission event listener registered.', 'color: #8b5cf6; font-weight: bold; font-size: 13px;');
+console.log('%c[TUFHub Content Script] 📥 Dual-channel sync engine initialized.', 'color: #8b5cf6; font-weight: bold; font-size: 13px;');
 
 let lastSyncTimestamp = 0;
+let isUserSubmitting = false;
+let submitTimeout = null;
 
 window.addEventListener('TUFHUB_ACCEPTED_SUBMISSION', async (event) => {
   const data = event.detail;
@@ -32,17 +34,30 @@ window.addEventListener('TUFHUB_ACCEPTED_SUBMISSION', async (event) => {
     data.code = code;
   }
 
-  // Prevent duplicate syncs within 4 seconds
-  if (Date.now() - lastSyncTimestamp < 4000) {
-    console.log('[TUFHub Content Script] ⏳ Duplicate event ignored (within 4s threshold).');
+  // Deduplicate syncs within 5 seconds
+  if (Date.now() - lastSyncTimestamp < 5000) {
+    console.log('[TUFHub Content Script] ⏳ Duplicate event ignored (within 5s threshold).');
     return;
   }
 
   lastSyncTimestamp = Date.now();
+  isUserSubmitting = false;
+  clearTimeout(submitTimeout);
+
   await executeGitHubSync(data);
 });
 
 function extractCodeFromMonacoFallback() {
+  try {
+    if (window.monaco && window.monaco.editor) {
+      const models = window.monaco.editor.getModels();
+      if (models && models.length > 0) {
+        const val = models[0].getValue();
+        if (val && val.trim().length > 0) return val;
+      }
+    }
+  } catch (e) {}
+
   try {
     const viewLines = document.querySelectorAll('.view-lines .view-line');
     if (viewLines.length > 0) {
@@ -175,6 +190,87 @@ async function flushOfflineQueue() {
 
 window.addEventListener('online', flushOfflineQueue);
 
+// -------------------------------------------------------------
+// DOM Verdict Watcher (Zero-Lag Backup Channel)
+// -------------------------------------------------------------
+function setupSubmitClickListeners() {
+  document.addEventListener('click', (e) => {
+    const target = e.target.closest('button, [role="button"], a, div[class*="button"]');
+    if (!target) return;
+
+    const text = (target.innerText || target.getAttribute('aria-label') || target.title || '').toLowerCase();
+    const className = (target.className || '').toString().toLowerCase();
+
+    if (text.includes('try') || text.includes('run') || text.includes('reset') || text.includes('console')) {
+      return;
+    }
+
+    const isSubmit = text.includes('submit') || className.includes('submit');
+    if (isSubmit) {
+      console.log('[TUFHub DOM Watcher] 🚀 Submit button click detected! Watching DOM for verdict...');
+      triggerDOMVerdictWatcher();
+    }
+  }, true);
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'Enter' || e.keyCode === 13)) {
+      console.log('[TUFHub DOM Watcher] 🚀 Ctrl+Enter shortcut detected! Watching DOM for verdict...');
+      triggerDOMVerdictWatcher();
+    }
+  }, true);
+}
+
+function triggerDOMVerdictWatcher() {
+  isUserSubmitting = true;
+  clearTimeout(submitTimeout);
+
+  let checks = 0;
+  const interval = setInterval(() => {
+    checks++;
+    if (!isUserSubmitting || checks > 30) { // 15 seconds max
+      clearInterval(interval);
+      isUserSubmitting = false;
+      return;
+    }
+
+    // Check for DOM verdict: "Submission Verdict: Accepted" + "Test Cases Passed : X/X"
+    const bodyText = document.body.innerText || '';
+    if (bodyText.includes('Submission Verdict') && bodyText.includes('Accepted')) {
+      const match = bodyText.match(/Test Cases Passed\s*:\s*(\d+)\s*\/\s*(\d+)/i);
+      if (match) {
+        const passed = parseInt(match[1], 10);
+        const total = parseInt(match[2], 10);
+        if (passed > 0 && passed === total) {
+          console.log(`%c[TUFHub DOM Watcher] 🎉 100% Passed DOM Verdict Confirmed (${passed}/${total})!`, 'color: #22c55e; font-weight: bold; font-size: 13px;');
+          clearInterval(interval);
+          isUserSubmitting = false;
+
+          if (Date.now() - lastSyncTimestamp > 5000) {
+            const code = extractCodeFromMonacoFallback();
+            const titleElem = document.querySelector('h1, [class*="title"], [class*="problem-name"]');
+            const diffElem = document.querySelector('[class*="difficulty"], [class*="badge"]');
+
+            executeGitHubSync({
+              code,
+              language: 'cpp',
+              title: titleElem ? titleElem.innerText.trim() : extractTitleFromUrl(),
+              difficulty: diffElem ? diffElem.innerText.trim() : 'Medium',
+              description: '',
+              url: window.location.href,
+              timestamp: Date.now()
+            });
+          }
+        }
+      }
+    }
+  }, 500);
+
+  submitTimeout = setTimeout(() => {
+    isUserSubmitting = false;
+    clearInterval(interval);
+  }, 15000);
+}
+
 function extractTitleFromUrl() {
   try {
     const pathname = window.location.pathname;
@@ -223,7 +319,11 @@ function get2TierHierarchyFromDOM() {
 
 // Initialize listeners
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', flushOfflineQueue);
+  document.addEventListener('DOMContentLoaded', () => {
+    setupSubmitClickListeners();
+    flushOfflineQueue();
+  });
 } else {
+  setupSubmitClickListeners();
   flushOfflineQueue();
 }

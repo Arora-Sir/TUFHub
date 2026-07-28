@@ -1,7 +1,7 @@
 /**
  * TUFHub Page Interceptor (MAIN World)
- * Strict Filtering: ONLY intercepts 100% Passed Accepted submissions on /judge/submit or /judge/submission/result!
- * Excludes draft auto-saves (/drafts), test runs (/run), analytics (/track), and failing submissions!
+ * Hooks fetch + XHR to intercept active 100% Passed Accepted submissions!
+ * Handles initial submission POST + subsequent GET result polling!
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -49,7 +49,6 @@ if (typeof __name === 'undefined') {
 
   function extractLanguageFromDOM() {
     try {
-      const bodyText = (document.body.innerText || '').toLowerCase();
       const langSelectors = document.querySelectorAll('button, div, span, select');
       for (const el of langSelectors) {
         const txt = (el.innerText || '').trim().toLowerCase();
@@ -117,52 +116,56 @@ if (typeof __name === 'undefined') {
       return;
     }
 
-    // EXPLICITLY IGNORE DRAFTS, RUN, TRACK, AND GET HISTORY ENDPOINTS!
+    // EXPLICITLY IGNORE DRAFTS, RUN, TRACK!
     if (
       urlStr.includes('/drafts') ||
       urlStr.includes('/run') ||
       urlStr.includes('/track') ||
-      urlStr.includes('/submissions?') ||
-      urlStr.includes('/tabs') ||
-      method === 'GET'
+      urlStr.includes('/tabs')
     ) {
       return;
     }
 
-    // MUST BE /judge/submit OR /judge/submission/result!
-    if (!urlStr.includes('/judge/submit') && !urlStr.includes('/judge/submission/result')) {
+    // MUST BE judge/submit or judge/submission endpoints!
+    if (!urlStr.includes('/judge/submit') && !urlStr.includes('/judge/submission') && !urlStr.includes('/submission/result')) {
       return;
     }
 
-    console.log('[TUFHub Interceptor] 📡 Submission API Payload Intercepted:', { method, url: urlStr, data });
+    console.log('[TUFHub Interceptor] 📡 Judge API Payload Intercepted:', { method, url: urlStr, data });
 
     const payloadData = data.data || data;
 
-    // 2. VERDICT MUST BE STRICTLY ACCEPTED!
-    const rawVerdict = (payloadData.verdict || payloadData.status || payloadData.submission_status || '').toString().trim().toUpperCase();
+    // Search for verdict, passed, total test cases recursively or in list item
+    let targetObj = payloadData;
+    if (Array.isArray(payloadData) && payloadData.length > 0) {
+      targetObj = payloadData[0]; // Submission history list top item
+    }
+
+    const rawVerdict = (targetObj.verdict || targetObj.status || targetObj.submission_status || '').toString().trim().toUpperCase();
     
-    if (rawVerdict !== 'ACCEPTED') {
-      console.log(`[TUFHub Interceptor] 🛑 Ignored: Verdict is not ACCEPTED (verdict: "${rawVerdict}").`);
+    // VERDICT MUST BE ACCEPTED!
+    if (!rawVerdict.includes('ACCEPTED') && rawVerdict !== 'SUCCESS') {
+      console.log(`[TUFHub Interceptor] ⏳ Waiting: Verdict is "${rawVerdict}" (not ACCEPTED yet).`);
       return;
     }
 
-    // 3. TEST CASES MUST BE STRICTLY 100% PASSED!
-    const passed = payloadData.passed_test_cases ?? payloadData.passedTestCases ?? payloadData.passed;
-    const total = payloadData.total_test_cases ?? payloadData.totalTestCases ?? payloadData.total;
+    const passed = targetObj.passed_test_cases ?? targetObj.passedTestCases ?? targetObj.passed;
+    const total = targetObj.total_test_cases ?? targetObj.totalTestCases ?? targetObj.total;
 
+    // Test cases MUST be 100% passed!
     if (total === undefined || passed === undefined || total <= 0 || passed < total) {
-      console.warn(`[TUFHub Interceptor] 🛑 Ignored: Test cases incomplete or failing (${passed}/${total} passed).`);
+      console.warn(`[TUFHub Interceptor] 🛑 Ignored: Test cases incomplete (${passed}/${total} passed).`);
       return;
     }
 
-    const submissionId = payloadData.submission_id || payloadData.id || `${urlStr}_${passed}_${total}_${Date.now()}`;
+    const submissionId = targetObj.submission_id || targetObj.id || `${urlStr}_${passed}_${total}_${Date.now()}`;
     if (submissionId === lastProcessedSubmissionId) return;
     lastProcessedSubmissionId = submissionId;
 
     console.log('%c[TUFHub Interceptor] 🎉 100% PASSED ACCEPTED SUBMISSION CONFIRMED!', 'color: #3b82f6; font-weight: bold; font-size: 13px;', { verdict: rawVerdict, passed, total });
 
-    const code = payloadData.code || payloadData.solution || payloadData.source_code || extractCodeFromMonaco();
-    const language = payloadData.language || payloadData.lang || extractLanguageFromDOM();
+    const code = targetObj.code || targetObj.solution || targetObj.source_code || extractCodeFromMonaco();
+    const language = targetObj.language || targetObj.lang || extractLanguageFromDOM();
 
     const titleElem = document.querySelector('h1, [class*="title"], [class*="problem-name"]');
     const diffElem = document.querySelector('[class*="difficulty"], [class*="badge"]');
