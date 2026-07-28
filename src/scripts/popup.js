@@ -1,7 +1,4 @@
-/**
- * TUFHub Extension Popup Controller
- * Author: Mohit Arora (@Arora-Sir)
- */
+import { scanAndSyncRepoStats } from './tuf/stats.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   const unauthSection = document.getElementById('unauth-section');
@@ -11,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const userHandle = document.getElementById('user-handle');
   const devProfileLink = document.getElementById('dev-profile-link');
   const repoLink = document.getElementById('repo-link');
+  const syncRepoBtn = document.getElementById('sync-repo-btn');
 
   const statSolved = document.getElementById('stat-solved');
   const statEasy = document.getElementById('stat-easy');
@@ -30,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Load state
-  chrome.storage.local.get(['tufhub_token', 'tufhub_username', 'tufhub_hook', 'stats'], (res) => {
+  chrome.storage.local.get(['tufhub_token', 'tufhub_username', 'tufhub_hook', 'stats'], async (res) => {
     if (res.tufhub_token && res.tufhub_hook) {
       unauthSection.classList.add('hidden');
       authSection.classList.remove('hidden');
@@ -44,12 +42,37 @@ document.addEventListener('DOMContentLoaded', () => {
       repoLink.href = `https://github.com/${res.tufhub_hook}`;
 
       renderStats(res.stats);
+
+      // Auto-sync existing repo stats if 0 solved or missing
+      if (!res.stats || !res.stats.solved) {
+        const updatedStats = await scanAndSyncRepoStats(res.tufhub_token, res.tufhub_hook);
+        if (updatedStats) renderStats(updatedStats);
+      }
     } else {
       unauthSection.classList.remove('hidden');
       authSection.classList.add('hidden');
       disconnectBtn.classList.add('hidden');
     }
   });
+
+  // Manual Sync Repo Button Handler
+  if (syncRepoBtn) {
+    syncRepoBtn.addEventListener('click', async () => {
+      chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], async (res) => {
+        if (res.tufhub_token && res.tufhub_hook) {
+          syncRepoBtn.innerText = '⏳';
+          syncRepoBtn.disabled = true;
+          const updatedStats = await scanAndSyncRepoStats(res.tufhub_token, res.tufhub_hook);
+          if (updatedStats) renderStats(updatedStats);
+          syncRepoBtn.innerText = '✓';
+          setTimeout(() => {
+            syncRepoBtn.innerText = '↻ Sync';
+            syncRepoBtn.disabled = false;
+          }, 1500);
+        }
+      });
+    });
+  }
 
   // Real-time listener for stats updates in background/storage
   chrome.storage.onChanged.addListener((changes, areaName) => {

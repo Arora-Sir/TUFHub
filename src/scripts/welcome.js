@@ -4,6 +4,7 @@
  */
 
 import { requestGitHubAuth } from './authorize.js';
+import { scanAndSyncRepoStats } from './tuf/stats.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   const step1 = document.getElementById('step-1');
@@ -175,6 +176,9 @@ document.addEventListener('DOMContentLoaded', () => {
         tufhub_hook: repoHook,
         mode_type: 'commit'
       });
+
+      // Auto-scan existing repo stats for previously solved problems
+      await scanAndSyncRepoStats(token, repoHook);
 
       welcomeRepoLink.href = `https://github.com/${repoHook}`;
       step2.classList.add('hidden');

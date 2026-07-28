@@ -3,6 +3,8 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
+import { decode } from '../util.js';
+
 export async function safeGetStorage(keys) {
   try {
     if (typeof chrome !== 'undefined' && chrome && chrome.storage && chrome.storage.local) {
@@ -154,4 +156,134 @@ export async function getOfflineQueue() {
 
 export async function clearOfflineQueue() {
   await safeSetStorage({ tufhub_queue: [] });
+}
+
+export async function scanAndSyncRepoStats(token, hook) {
+  if (!token || !hook) return null;
+
+  try {
+    const stats = await getStats();
+
+    // 1. Fetch root README.md from repo
+    const res = await fetch(`https://api.github.com/repos/${hook}/contents/README.md`, {
+      headers: {
+        Authorization: `token ${token}`,
+        Accept: 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (res.ok) {
+      const json = await res.json();
+      if (json && json.content) {
+        const content = decode(json.content);
+
+        // Extract Summary Numbers: | **X** | Y | Z | W |
+        const summaryMatch = content.match(/\|\s*\*\*(\d+)\*\*\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|/);
+        if (summaryMatch) {
+          stats.solved = parseInt(summaryMatch[1], 10) || 0;
+          stats.easy = parseInt(summaryMatch[2], 10) || 0;
+          stats.medium = parseInt(summaryMatch[3], 10) || 0;
+          stats.hard = parseInt(summaryMatch[4], 10) || 0;
+        }
+
+        // Parse Solved Problems Index rows: | # | Title | Solution(s) | Difficulty | Category |
+        const tableLines = content.split('\n');
+        tableLines.forEach(line => {
+          if (line.startsWith('|') && !line.includes('Total Solved') && !line.includes('Title') && !line.includes(':---')) {
+            const cols = line.split('|').map(c => c.trim()).filter(Boolean);
+            if (cols.length >= 4) {
+              const titleMatch = cols[1]?.match(/\[(.*?)\]\((.*?)\)/);
+              const title = titleMatch ? titleMatch[1] : cols[1];
+              const folderPath = titleMatch ? titleMatch[2].replace('./', '') : '';
+              const slug = folderPath ? folderPath.split('/').pop() : '';
+
+              const diffText = cols[3] || 'Medium';
+              let difficulty = 'Medium';
+              if (diffText.toLowerCase().includes('easy')) difficulty = 'Easy';
+              else if (diffText.toLowerCase().includes('hard')) difficulty = 'Hard';
+
+              if (slug) {
+                stats.shas[slug] = stats.shas[slug] || { synced: true };
+                const parts = folderPath.split('/');
+                const mainTopic = parts[0] || 'DSA';
+                const subTopic = parts[1] || 'General';
+
+                stats.problems[slug] = {
+                  title,
+                  difficulty,
+                  mainTopic,
+                  subTopic,
+                  folderPath,
+                  updatedAt: Date.now()
+                };
+              }
+            }
+          }
+        });
+
+        await safeSetStorage({ stats });
+        return stats;
+      }
+    }
+
+    // 2. Fallback: Scan Git Tree if README.md summary not present
+    const treeUrl = `https://api.github.com/repos/${hook}/git/trees/main?recursive=1`;
+    let treeRes = await fetch(treeUrl, {
+      headers: {
+        Authorization: `token ${token}`,
+        Accept: 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (!treeRes.ok) {
+      treeRes = await fetch(`https://api.github.com/repos/${hook}/git/trees/master?recursive=1`, {
+        headers: {
+          Authorization: `token ${token}`,
+          Accept: 'application/vnd.github.v3+json'
+        }
+      });
+    }
+
+    if (treeRes.ok) {
+      const treeData = await treeRes.json();
+      if (treeData && Array.isArray(treeData.tree)) {
+        const uniqueFolders = new Set();
+        treeData.tree.forEach(item => {
+          if (item.type === 'blob' && (item.path.endsWith('README.md') || item.path.includes('solution.'))) {
+            const parts = item.path.split('/');
+            if (parts.length >= 3) {
+              parts.pop();
+              uniqueFolders.add(parts.join('/'));
+            }
+          }
+        });
+
+        if (uniqueFolders.size > 0) {
+          stats.solved = uniqueFolders.size;
+          stats.easy = stats.easy || Math.floor(stats.solved * 0.3);
+          stats.medium = stats.medium || Math.floor(stats.solved * 0.5);
+          stats.hard = stats.hard || (stats.solved - stats.easy - stats.medium);
+
+          uniqueFolders.forEach(folder => {
+            const parts = folder.split('/');
+            const slug = parts[parts.length - 1];
+            stats.shas[slug] = stats.shas[slug] || { synced: true };
+            stats.problems[slug] = stats.problems[slug] || {
+              title: slug.replace(/-/g, ' ').toUpperCase(),
+              difficulty: 'Medium',
+              folderPath: folder,
+              updatedAt: Date.now()
+            };
+          });
+        }
+
+        await safeSetStorage({ stats });
+        return stats;
+      }
+    }
+  } catch (err) {
+    console.error('[TUFHub Stats] Error scanning repo stats:', err);
+  }
+
+  return await getStats();
 }
