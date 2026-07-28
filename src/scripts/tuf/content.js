@@ -1,6 +1,6 @@
 /**
  * TUFHub Content Script (ISOLATED World)
- * Dual-Channel Sync Engine: Network Interceptor + DOM Verdict Watcher
+ * Sequential Commit Chain: Prevents Git branch race conditions & 409 conflicts
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -118,17 +118,31 @@ async function executeGitHubSync(data) {
     const existingShas = stats.shas[slug] || {};
 
     console.log(`[TUFHub Sync Engine] 📦 File: ${folderPath}/${codeFileName}`);
-    console.log('[TUFHub Sync Engine] 📤 Uploading to GitHub repo:', hook);
+    console.log('[TUFHub Sync Engine] 📤 Sequential upload chain initiated for repo:', hook);
 
-    // 1. Upload solution code and problem README in parallel
-    const [codeSha, readmeSha] = await Promise.all([
-      uploadToGitHub(token, hook, `${folderPath}/${codeFileName}`, data.code, `Add solution for ${rawTitle} - TUFHub`, existingShas[codeFileName] || ''),
-      uploadToGitHub(token, hook, `${folderPath}/README.md`, problemReadmeContent, `Create README for ${rawTitle} - TUFHub`, existingShas['README.md'] || '')
-    ]);
+    // 1. Upload solution code FIRST (sequential chain prevents branch HEAD race conditions!)
+    const codeSha = await uploadToGitHub(
+      token,
+      hook,
+      `${folderPath}/${codeFileName}`,
+      data.code,
+      `Add solution for ${rawTitle} - TUFHub`,
+      existingShas[codeFileName] || ''
+    );
+    console.log('[TUFHub Sync Engine] ✅ Solution code uploaded successfully!');
 
-    console.log('[TUFHub Sync Engine] ✅ Solution code & README uploaded successfully!');
+    // 2. Upload problem README SECOND
+    const readmeSha = await uploadToGitHub(
+      token,
+      hook,
+      `${folderPath}/README.md`,
+      problemReadmeContent,
+      `Create README for ${rawTitle} - TUFHub`,
+      existingShas['README.md'] || ''
+    );
+    console.log('[TUFHub Sync Engine] ✅ Problem README uploaded successfully!');
 
-    // 2. Update local stats
+    // 3. Update local stats
     const updatedStats = await updateStats(data.difficulty, slug, {
       [codeFileName]: codeSha,
       'README.md': readmeSha
@@ -138,7 +152,7 @@ async function executeGitHubSync(data) {
       folderPath
     });
 
-    // 3. Update root README index (Fail-safe wrapper)
+    // 4. Update root README index THIRD
     try {
       await updateRootReadme(token, hook, cleanMain, cleanSub, slug, updatedStats);
       console.log('[TUFHub Sync Engine] ✅ Root README updated successfully!');
@@ -146,10 +160,10 @@ async function executeGitHubSync(data) {
       console.warn('[TUFHub Sync Engine] ⚠️ Root README update warning (non-critical):', rootErr);
     }
 
-    // 4. Notify background worker to trigger success badge
+    // 5. Notify background worker to trigger success badge
     chrome.runtime.sendMessage({ type: 'SHOW_BADGE_SUCCESS' });
 
-    // 5. Show success toast on TUF+ page
+    // 6. Show success toast on TUF+ page
     showToast(`Synced ${rawTitle} to GitHub!`, 'success');
 
   } catch (err) {
@@ -227,13 +241,12 @@ function triggerDOMVerdictWatcher() {
   let checks = 0;
   const interval = setInterval(() => {
     checks++;
-    if (!isUserSubmitting || checks > 30) { // 15 seconds max
+    if (!isUserSubmitting || checks > 30) {
       clearInterval(interval);
       isUserSubmitting = false;
       return;
     }
 
-    // Check for DOM verdict: "Submission Verdict: Accepted" + "Test Cases Passed : X/X"
     const bodyText = document.body.innerText || '';
     if (bodyText.includes('Submission Verdict') && bodyText.includes('Accepted')) {
       const match = bodyText.match(/Test Cases Passed\s*:\s*(\d+)\s*\/\s*(\d+)/i);
