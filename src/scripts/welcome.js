@@ -129,7 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
       step2.classList.remove('hidden');
     } catch (err) {
       alert('Token Validation Failed: ' + err.message);
-      savePatBtn.innerText = 'Save Token & Continue →';
+      savePatBtn.innerText = 'Save Token & Continue';
       savePatBtn.disabled = false;
     }
   });
@@ -203,7 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
       step3.classList.remove('hidden');
     } catch (err) {
       alert('Failed to create repository: ' + err.message);
-      createRepoBtn.innerText = 'Create Repository & Finish Setup →';
+      createRepoBtn.innerText = 'Create Repository & Finish Setup';
       createRepoBtn.disabled = false;
     }
   });
