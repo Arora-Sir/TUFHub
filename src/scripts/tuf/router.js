@@ -9,7 +9,7 @@
  * - Mock Tests (Mock Exam Coding Submissions)
  */
 
-import { sanitizePathSegment, convertToSlug, addLeadingZeros } from '../util.js';
+import { sanitizePathSegment } from '../util.js';
 
 export function resolveHierarchy(data = {}) {
   const pageUrl = data.url || window.location.href;
@@ -23,6 +23,7 @@ export function resolveHierarchy(data = {}) {
   const pathname = urlObj.pathname.toLowerCase();
   const searchParams = urlObj.searchParams;
   const subjectParam = (searchParams.get('subject') || '').toLowerCase();
+  const approachParam = (searchParams.get('approach') || '').toLowerCase();
   const rawLanguage = (data.language || '').toLowerCase();
 
   let category = 'DSA';
@@ -110,36 +111,38 @@ export function resolveHierarchy(data = {}) {
   // -------------------------------------------------------------
   category = 'DSA';
 
-  if (subjectParam.includes('linked-list') || pathname.includes('linked-list') || pathname.includes('/ll/')) {
+  const titleOrUrl = (pathname + ' ' + (data.title || '') + ' ' + subjectParam + ' ' + approachParam).toLowerCase();
+
+  if (titleOrUrl.includes('linked-list') || titleOrUrl.includes('ll') || titleOrUrl.includes('reverse-a-list')) {
     mainTopic = 'Linked-List';
-  } else if (subjectParam.includes('array') || pathname.includes('array') || pathname.includes('sorting')) {
-    mainTopic = 'Arrays';
-  } else if (subjectParam.includes('binary-search') || pathname.includes('binary-search')) {
+  } else if (titleOrUrl.includes('binary-search') || titleOrUrl.includes('search-in-sorted')) {
     mainTopic = 'Binary-Search';
-  } else if (subjectParam.includes('recursion') || pathname.includes('recursion')) {
+  } else if (titleOrUrl.includes('subsets') || titleOrUrl.includes('recursion') || titleOrUrl.includes('combination-sum') || titleOrUrl.includes('recursive')) {
     mainTopic = 'Recursion';
-  } else if (subjectParam.includes('backtracking') || pathname.includes('backtracking')) {
+  } else if (titleOrUrl.includes('backtracking') || titleOrUrl.includes('n-queens') || titleOrUrl.includes('sudoku')) {
     mainTopic = 'Backtracking';
-  } else if (subjectParam.includes('tree') || pathname.includes('tree') || pathname.includes('bst')) {
+  } else if (titleOrUrl.includes('tree') || titleOrUrl.includes('bst') || titleOrUrl.includes('inorder') || titleOrUrl.includes('preorder')) {
     mainTopic = 'Trees';
-  } else if (subjectParam.includes('graph') || pathname.includes('graph')) {
+  } else if (titleOrUrl.includes('graph') || titleOrUrl.includes('bfs') || titleOrUrl.includes('dfs') || titleOrUrl.includes('dijkstra')) {
     mainTopic = 'Graphs';
-  } else if (subjectParam.includes('dp') || subjectParam.includes('dynamic-programming') || pathname.includes('dp')) {
+  } else if (titleOrUrl.includes('dp') || titleOrUrl.includes('dynamic-programming') || titleOrUrl.includes('knapsack') || titleOrUrl.includes('lis')) {
     mainTopic = 'Dynamic-Programming';
-  } else if (subjectParam.includes('string') || pathname.includes('string')) {
+  } else if (titleOrUrl.includes('string') || titleOrUrl.includes('anagram') || titleOrUrl.includes('palindrome')) {
     mainTopic = 'Strings';
-  } else if (subjectParam.includes('stack') || subjectParam.includes('queue') || pathname.includes('stack') || pathname.includes('queue')) {
+  } else if (titleOrUrl.includes('stack') || titleOrUrl.includes('queue') || titleOrUrl.includes('lru-cache')) {
     mainTopic = 'Stack-Queue';
-  } else if (subjectParam.includes('bit') || pathname.includes('bit')) {
+  } else if (titleOrUrl.includes('bit') || titleOrUrl.includes('xor') || titleOrUrl.includes('two-odd')) {
     mainTopic = 'Bit-Manipulation';
-  } else if (subjectParam.includes('greedy') || pathname.includes('greedy')) {
+  } else if (titleOrUrl.includes('greedy') || titleOrUrl.includes('n-meetings')) {
     mainTopic = 'Greedy';
-  } else if (subjectParam.includes('heap') || pathname.includes('heap')) {
+  } else if (titleOrUrl.includes('heap') || titleOrUrl.includes('kth-largest') || titleOrUrl.includes('median')) {
     mainTopic = 'Heaps';
-  } else if (subjectParam.includes('sliding-window') || pathname.includes('sliding-window')) {
+  } else if (titleOrUrl.includes('sliding-window') || titleOrUrl.includes('max-consecutive')) {
     mainTopic = 'Sliding-Window';
+  } else if (titleOrUrl.includes('array') || titleOrUrl.includes('sort') || titleOrUrl.includes('pascal') || titleOrUrl.includes('matrix')) {
+    mainTopic = 'Arrays';
   } else {
-    mainTopic = 'General';
+    mainTopic = extractTopicFromPathname(pathname) || 'General';
   }
 
   subTopic = extractSubTopicFromDOM() || 'General';

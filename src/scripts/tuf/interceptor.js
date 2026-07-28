@@ -1,6 +1,6 @@
 /**
  * TUFHub Page Interceptor (MAIN World)
- * Direct Recursive Payload Matcher: Finds verdict & test cases across nested data.submissions arrays!
+ * Direct Recursive Payload Matcher with User Submission Gate (Prevents Page Load Auto-Sync)
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -21,6 +21,15 @@ var __name = function (target, value) {
   let cachedProblemDescription = '';
   let cachedProblemTitle = '';
   let lastProcessedSubmissionId = '';
+
+  let userSubmitTimestamp = 0;
+  let activeSubmissionId = '';
+
+  // Listen for explicit Submit click or Ctrl+Enter from content script
+  window.addEventListener('TUFHUB_USER_SUBMIT_CLICKED', () => {
+    userSubmitTimestamp = Date.now();
+    console.log('%c[TUFHub Interceptor] 🎯 User Submit Intent Registered!', 'color: #3b82f6; font-weight: bold;');
+  });
 
   function extractCodeFromMonaco() {
     try {
@@ -57,6 +66,7 @@ var __name = function (target, value) {
         if (txt === 'c#' || txt === 'csharp') return 'cs';
         if (txt === 'go' || txt === 'golang') return 'go';
         if (txt === 'rust') return 'rs';
+        if (txt === 'sql') return 'sql';
       }
     } catch (e) {}
     return 'cpp';
@@ -97,9 +107,6 @@ var __name = function (target, value) {
     return '';
   }
 
-  /**
-   * Recursively unwrap payload to locate submission object containing verdict/test cases
-   */
   function findSubmissionObject(obj) {
     if (!obj || typeof obj !== 'object') return null;
 
@@ -128,7 +135,7 @@ var __name = function (target, value) {
 
     const urlStr = url.toString().toLowerCase();
 
-    // 1. Cache Problem Details when page loads problem data
+    // Cache Problem Details on page load
     if (urlStr.includes('/problem') && !urlStr.includes('/judge/')) {
       try {
         const prob = data.data || data.problem || data;
@@ -139,7 +146,7 @@ var __name = function (target, value) {
       return;
     }
 
-    // IGNORE DRAFTS, RUN, TRACK, AND TABS
+    // Ignore non-judge endpoints
     if (
       urlStr.includes('/drafts') ||
       urlStr.includes('/run') ||
@@ -149,23 +156,38 @@ var __name = function (target, value) {
       return;
     }
 
-    // MUST BE /judge/submit OR /judge/submissions!
+    // Must be judge submit or judge submissions
     if (!urlStr.includes('/judge/submit') && !urlStr.includes('/judge/submissions') && !urlStr.includes('/submission/result')) {
+      return;
+    }
+
+    // 1. If this is a POST to /judge/submit, user just clicked Submit!
+    if (method === 'POST' && urlStr.includes('/judge/submit')) {
+      userSubmitTimestamp = Date.now();
+      const targetSubId = data.data?.submission_id || data.submission_id || data.data?.id;
+      if (targetSubId) {
+        activeSubmissionId = targetSubId;
+      }
+      console.log('%c[TUFHub Interceptor] 🚀 Active Submission Initiated via POST /judge/submit!', 'color: #8b5cf6; font-weight: bold;', { activeSubmissionId });
+      return;
+    }
+
+    // 2. CRITICAL GATE: Ignore GET requests on page load UNLESS user clicked Submit within last 45 seconds!
+    const isWithinSubmitWindow = (Date.now() - userSubmitTimestamp) < 45000;
+    if (!isWithinSubmitWindow) {
+      console.log('[TUFHub Interceptor] ℹ️ Page-load history fetch ignored (User did not click Submit recently).');
       return;
     }
 
     console.log('[TUFHub Interceptor] 📡 Judge API Payload Intercepted:', { method, url: urlStr, data });
 
-    // Recursively extract target submission object
     const targetObj = findSubmissionObject(data);
     if (!targetObj) {
-      console.log('[TUFHub Interceptor] ⏳ Waiting: No submission object found in payload.');
       return;
     }
 
     const rawVerdict = (targetObj.verdict || targetObj.status || targetObj.submission_status || '').toString().trim().toUpperCase();
     
-    // VERDICT MUST BE ACCEPTED!
     if (!rawVerdict.includes('ACCEPTED') && rawVerdict !== 'SUCCESS') {
       console.log(`[TUFHub Interceptor] ⏳ Waiting: Verdict is "${rawVerdict}" (not ACCEPTED yet).`);
       return;
@@ -174,15 +196,15 @@ var __name = function (target, value) {
     const passed = targetObj.passed_test_cases ?? targetObj.passedTestCases ?? targetObj.passed;
     const total = targetObj.total_test_cases ?? targetObj.totalTestCases ?? targetObj.total;
 
-    // Test cases MUST be 100% passed!
     if (total !== undefined && passed !== undefined && total > 0 && passed < total) {
       console.warn(`[TUFHub Interceptor] 🛑 Ignored: Test cases incomplete (${passed}/${total} passed).`);
       return;
     }
 
-    const submissionId = targetObj.submission_id || targetObj.id || `${urlStr}_${passed}_${total}_${Date.now()}`;
+    const submissionId = targetObj.submission_id || targetObj.id || `${urlStr}_${passed}_${total}`;
     if (submissionId === lastProcessedSubmissionId) return;
     lastProcessedSubmissionId = submissionId;
+    userSubmitTimestamp = 0; // Reset gate after successful trigger
 
     console.log('%c[TUFHub Interceptor] 🎉 100% PASSED ACCEPTED SUBMISSION CONFIRMED!', 'color: #3b82f6; font-weight: bold; font-size: 13px;', { verdict: rawVerdict, passed, total });
 
@@ -211,7 +233,7 @@ var __name = function (target, value) {
     }));
   }
 
-  // 1. Hook window.fetch
+  // Hook fetch
   const originalFetch = window.fetch;
   window.fetch = function (...args) {
     const url = args[0] ? args[0].toString() : '';
@@ -228,7 +250,7 @@ var __name = function (target, value) {
     });
   };
 
-  // 2. Hook XMLHttpRequest
+  // Hook XMLHttpRequest
   const originalXOpen = XMLHttpRequest.prototype.open;
   const originalXSend = XMLHttpRequest.prototype.send;
 
