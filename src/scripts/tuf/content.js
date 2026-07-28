@@ -1,6 +1,6 @@
 /**
  * TUFHub Content Script (ISOLATED World)
- * Multi-layer detection + Multi-Language Support + Offline Retry Queue
+ * Multi-layer detection + Conflict Recovery + Fail-safe Toast
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -97,18 +97,18 @@ async function executeGitHubSync(data) {
     const stats = await getStats();
     const existingShas = stats.shas[slug] || {};
 
-    console.log(`[TUFHub Debug] Clean target path: ${folderPath}/${codeFileName}`);
+    console.log(`[TUFHub Debug] Target path: ${folderPath}/${codeFileName}`);
     console.log('[TUFHub Debug] Starting parallel uploads to GitHub repo:', hook);
 
-    // Upload solution code and problem README in parallel
+    // 1. Upload solution code and problem README in parallel
     const [codeSha, readmeSha] = await Promise.all([
       uploadToGitHub(token, hook, `${folderPath}/${codeFileName}`, data.code, `Add solution for ${rawTitle} - TUFHub`, existingShas[codeFileName] || ''),
       uploadToGitHub(token, hook, `${folderPath}/README.md`, problemReadmeContent, `Create README for ${rawTitle} - TUFHub`, existingShas['README.md'] || '')
     ]);
 
-    console.log('[TUFHub Debug] Code & README uploaded successfully. Updating root README...');
+    console.log('[TUFHub Debug] Solution code & README uploaded successfully!');
 
-    // Update local stats first with detailed problem meta
+    // 2. Update local stats
     const updatedStats = await updateStats(data.difficulty, slug, {
       [codeFileName]: codeSha,
       'README.md': readmeSha
@@ -118,15 +118,18 @@ async function executeGitHubSync(data) {
       folderPath
     });
 
-    // Update root README problem index table
-    await updateRootReadme(token, hook, cleanMain, cleanSub, slug, updatedStats);
+    // 3. Update root README index (Fail-safe wrapper)
+    try {
+      await updateRootReadme(token, hook, cleanMain, cleanSub, slug, updatedStats);
+      console.log('[TUFHub Debug] Root README updated successfully!');
+    } catch (rootErr) {
+      console.warn('[TUFHub Debug] Root README update warning (non-critical):', rootErr);
+    }
 
-    console.log('[TUFHub Debug] Sync process fully completed!');
-
-    // Notify background worker to trigger success badge
+    // 4. Notify background worker to trigger success badge
     chrome.runtime.sendMessage({ type: 'SHOW_BADGE_SUCCESS' });
 
-    // Show success toast on TUF+ page
+    // 5. Show success toast on TUF+ page
     showToast(`Synced ${rawTitle} to GitHub!`, 'success');
 
   } catch (err) {
@@ -134,7 +137,6 @@ async function executeGitHubSync(data) {
     let reasonCode = 'SYNC_ERROR';
     if (!navigator.onLine) {
       reasonCode = 'NO_INTERNET';
-      // Queue offline for auto-retry when online
       await enqueueOfflineSync(data);
       showToast('Network offline. Queued for auto-sync when online.', 'info');
       return;
@@ -148,9 +150,6 @@ async function executeGitHubSync(data) {
   }
 }
 
-// -------------------------------------------------------------
-// Flush Offline Queue on Connectivity Restoration
-// -------------------------------------------------------------
 async function flushOfflineQueue() {
   const queue = await getOfflineQueue();
   if (queue.length === 0) return;
@@ -228,12 +227,10 @@ function setupSubmitClickListeners() {
     const text = (target.innerText || target.getAttribute('aria-label') || target.title || '').toLowerCase();
     const html = (target.innerHTML || '').toLowerCase();
 
-    // Ignore explicit Try/Run/Reset/Clear buttons
     if (text.includes('try') || text.includes('run') || text.includes('reset') || text.includes('console')) {
       return;
     }
 
-    // Match Rocket Submit Button or Submit text
     const isSubmit = 
       text.includes('submit') || 
       html.includes('submit') ||
@@ -245,14 +242,14 @@ function setupSubmitClickListeners() {
       console.log('[TUFHub Debug] Universal Submit button click detected!');
       triggerUserSubmissionWindow();
     }
-  }, true); // useCapture = true
+  }, true);
 
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'Enter' || e.keyCode === 13)) {
       console.log('[TUFHub Debug] Capture phase Ctrl+Enter detected!');
       triggerUserSubmissionWindow();
     }
-  }, true); // useCapture = true
+  }, true);
 }
 
 function triggerUserSubmissionWindow() {
@@ -289,7 +286,7 @@ function pollForAcceptedVerdict() {
   }, 500);
 }
 
-// Initialize listeners & flush queue if returning online
+// Initialize listeners
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     setupSubmitClickListeners();
