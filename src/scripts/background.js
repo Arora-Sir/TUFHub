@@ -3,7 +3,7 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-const DEFAULT_CLIENT_ID = 'Ov23liKuq2RDSbo3gYPo';
+const DEFAULT_CLIENT_ID = '';
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {

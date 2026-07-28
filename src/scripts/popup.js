@@ -36,7 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
       authSection.classList.remove('hidden');
       disconnectBtn.classList.remove('hidden');
 
-      const handle = res.tufhub_username || 'Arora-Sir';
+      const handle = res.tufhub_username || 'User';
       userHandle.innerText = `@${handle}`;
       if (devProfileLink) {
         devProfileLink.href = `https://github.com/${handle}`;
