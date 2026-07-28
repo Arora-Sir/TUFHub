@@ -1,13 +1,13 @@
 /**
  * TUFHub Content Script (ISOLATED World)
- * Multi-layer detection: Robust Rocket Submit Button + Capture Phase Ctrl+Enter
+ * Multi-layer detection + Multi-Language Support + Offline Retry Queue
  * Author: Mohit Arora (@Arora-Sir)
  */
 
 import { buildProblemReadme } from './readme.js';
 import { updateRootReadme } from './rootReadme.js';
 import { uploadToGitHub } from './uploader.js';
-import { getStats, updateStats, isDebounced, safeGetStorage } from './stats.js';
+import { getStats, updateStats, isDebounced, safeGetStorage, enqueueOfflineSync, getOfflineQueue, clearOfflineQueue } from './stats.js';
 import { showToast } from './toast.js';
 import { LANGUAGE_MAP, convertToSlug, addLeadingZeros, sanitizePathSegment } from '../util.js';
 
@@ -23,7 +23,6 @@ window.addEventListener('TUFHUB_ACCEPTED_SUBMISSION', async (event) => {
 
   if (!data) return;
 
-  // ONLY sync if the user explicitly initiated a submission!
   if (!isUserSubmitting) {
     console.log('[TUFHub Debug] Ignored event - user did not initiate submission.');
     return;
@@ -36,7 +35,6 @@ window.addEventListener('TUFHUB_ACCEPTED_SUBMISSION', async (event) => {
     return;
   }
 
-  // Prevent double sync within 2 seconds
   if (Date.now() - lastSyncTimestamp < 2000) {
     console.log('[TUFHub Debug] Duplicate event ignored (within 2s threshold).');
     return;
@@ -64,7 +62,6 @@ async function executeGitHubSync(data) {
 
   console.log('[TUFHub Debug] Processing active submission for hierarchy path:', folderPath);
 
-  // 5-second debounce check
   const debounced = await isDebounced(slug, 5000);
   if (debounced) {
     console.log(`[TUFHub Debug] Cooldown active for ${slug}. Skipping duplicate.`);
@@ -135,8 +132,13 @@ async function executeGitHubSync(data) {
   } catch (err) {
     console.error('[TUFHub Debug] Sync Error:', err);
     let reasonCode = 'SYNC_ERROR';
-    if (!navigator.onLine) reasonCode = 'NO_INTERNET';
-    else if (err.message.includes('403')) reasonCode = 'RATE_LIMITED';
+    if (!navigator.onLine) {
+      reasonCode = 'NO_INTERNET';
+      // Queue offline for auto-retry when online
+      await enqueueOfflineSync(data);
+      showToast('Network offline. Queued for auto-sync when online.', 'info');
+      return;
+    } else if (err.message.includes('403')) reasonCode = 'RATE_LIMITED';
     else if (err.message.includes('401')) reasonCode = 'TOKEN_EXPIRED';
     else if (err.message.includes('404')) reasonCode = 'REPO_NOT_FOUND';
 
@@ -145,6 +147,29 @@ async function executeGitHubSync(data) {
     });
   }
 }
+
+// -------------------------------------------------------------
+// Flush Offline Queue on Connectivity Restoration
+// -------------------------------------------------------------
+async function flushOfflineQueue() {
+  const queue = await getOfflineQueue();
+  if (queue.length === 0) return;
+
+  console.log(`[TUFHub Debug] Internet connection restored. Flushing ${queue.length} offline items...`);
+  showToast(`Internet restored. Retrying ${queue.length} queued syncs...`, 'syncing');
+
+  await clearOfflineQueue();
+
+  for (const item of queue) {
+    try {
+      await executeGitHubSync(item.syncData);
+    } catch (e) {
+      console.error('[TUFHub Debug] Offline queue flush error:', e);
+    }
+  }
+}
+
+window.addEventListener('online', flushOfflineQueue);
 
 function extractTitleFromUrl() {
   try {
@@ -223,7 +248,6 @@ function setupSubmitClickListeners() {
   }, true); // useCapture = true
 
   document.addEventListener('keydown', (e) => {
-    // Capture Ctrl + Enter / Cmd + Enter
     if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'Enter' || e.keyCode === 13)) {
       console.log('[TUFHub Debug] Capture phase Ctrl+Enter detected!');
       triggerUserSubmissionWindow();
@@ -261,13 +285,17 @@ function pollForAcceptedVerdict() {
         window.dispatchEvent(new CustomEvent('TUFHUB_TRIGGER_MONACO_SCRAPE'));
       }
     }
-    if (checks > 30) clearInterval(interval); // 15s max
+    if (checks > 30) clearInterval(interval);
   }, 500);
 }
 
-// Initialize listeners
+// Initialize listeners & flush queue if returning online
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', setupSubmitClickListeners);
+  document.addEventListener('DOMContentLoaded', () => {
+    setupSubmitClickListeners();
+    flushOfflineQueue();
+  });
 } else {
   setupSubmitClickListeners();
+  flushOfflineQueue();
 }

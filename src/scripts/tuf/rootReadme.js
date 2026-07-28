@@ -1,5 +1,5 @@
 /**
- * TUFHub Root README.md Enhanced Builder (LeetHub-2.0 Style Table Index)
+ * TUFHub Root README.md Enhanced Builder (Multi-Language Table Index)
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -61,7 +61,7 @@ function generateRootReadmeMarkdown(stats) {
 
 ## 🗂️ Solved Problems Index
 
-| # | Title | Solution | Difficulty | Category |
+| # | Title | Solution(s) | Difficulty | Category |
 | :---: | :--- | :---: | :---: | :--- |
 `;
 
@@ -76,7 +76,6 @@ function generateRootReadmeMarkdown(stats) {
       const p = problems[slug];
       const numStr = (idx + 1).toString().padStart(4, '0');
       const folderUrl = `./${p.folderPath.split('/').map(encodeURIComponent).join('/')}`;
-      const codeUrl = `${folderUrl}/${encodeURIComponent(p.codeFileName)}`;
       
       const diffBadge = p.difficulty.toLowerCase().includes('easy')
         ? '🟢 Easy'
@@ -84,10 +83,24 @@ function generateRootReadmeMarkdown(stats) {
         ? '🔴 Hard'
         : '🟡 Medium';
 
-      const ext = p.codeFileName.split('.').pop() || 'code';
-      const langLabel = ext.toUpperCase();
+      // Multi-language link builder
+      let solutionLinks = '';
+      const languages = p.languages || {};
+      const langExts = Object.keys(languages);
 
-      rows += `| ${numStr} | [${p.title}](${folderUrl}) | [${langLabel}](${codeUrl}) | ${diffBadge} | \`${p.mainTopic}\` / \`${p.subTopic}\` |\n`;
+      if (langExts.length > 0) {
+        solutionLinks = langExts.map(ext => {
+          const fileName = languages[ext];
+          const fileUrl = `${folderUrl}/${encodeURIComponent(fileName)}`;
+          return `[${ext.toUpperCase()}](${fileUrl})`;
+        }).join(' ');
+      } else {
+        const ext = p.codeFileName ? p.codeFileName.split('.').pop() : 'code';
+        const fileUrl = `${folderUrl}/${encodeURIComponent(p.codeFileName)}`;
+        solutionLinks = `[${ext.toUpperCase()}](${fileUrl})`;
+      }
+
+      rows += `| ${numStr} | [${p.title}](${folderUrl}) | ${solutionLinks} | ${diffBadge} | \`${p.mainTopic}\` / \`${p.subTopic}\` |\n`;
     });
   }
 
