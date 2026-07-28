@@ -1,19 +1,16 @@
 /**
  * TUFHub Page Interceptor (MAIN World)
- * Hooks fetch + XHR to intercept active 100% Passed Accepted submissions!
- * Handles initial submission POST + subsequent GET result polling!
+ * Direct Recursive Payload Matcher: Finds verdict & test cases across nested data.submissions arrays!
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-if (typeof __name === 'undefined') {
-  var __name = function (target, value) {
-    try {
-      return Object.defineProperty(target, 'name', { value: value, configurable: true });
-    } catch (e) {
-      return target;
-    }
-  };
-}
+var __name = function (target, value) {
+  try {
+    return Object.defineProperty(target, 'name', { value: value, configurable: true });
+  } catch (e) {
+    return target;
+  }
+};
 
 (function () {
   if (window.__TUFHUB_INTERCEPTOR_INITED__) return;
@@ -100,6 +97,32 @@ if (typeof __name === 'undefined') {
     return '';
   }
 
+  /**
+   * Recursively unwrap payload to locate submission object containing verdict/test cases
+   */
+  function findSubmissionObject(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+
+    if (Array.isArray(obj)) {
+      if (obj.length > 0) return findSubmissionObject(obj[0]);
+      return null;
+    }
+
+    if (Array.isArray(obj.submissions) && obj.submissions.length > 0) {
+      return findSubmissionObject(obj.submissions[0]);
+    }
+
+    if (obj.verdict || obj.submission_status || obj.status_text || obj.status) {
+      return obj;
+    }
+
+    if (obj.data) {
+      return findSubmissionObject(obj.data);
+    }
+
+    return null;
+  }
+
   function processPayload(method, url, data) {
     if (!data) return;
 
@@ -116,7 +139,7 @@ if (typeof __name === 'undefined') {
       return;
     }
 
-    // EXPLICITLY IGNORE DRAFTS, RUN, TRACK!
+    // IGNORE DRAFTS, RUN, TRACK, AND TABS
     if (
       urlStr.includes('/drafts') ||
       urlStr.includes('/run') ||
@@ -126,19 +149,18 @@ if (typeof __name === 'undefined') {
       return;
     }
 
-    // MUST BE judge/submit or judge/submission endpoints!
-    if (!urlStr.includes('/judge/submit') && !urlStr.includes('/judge/submission') && !urlStr.includes('/submission/result')) {
+    // MUST BE /judge/submit OR /judge/submissions!
+    if (!urlStr.includes('/judge/submit') && !urlStr.includes('/judge/submissions') && !urlStr.includes('/submission/result')) {
       return;
     }
 
     console.log('[TUFHub Interceptor] 📡 Judge API Payload Intercepted:', { method, url: urlStr, data });
 
-    const payloadData = data.data || data;
-
-    // Search for verdict, passed, total test cases recursively or in list item
-    let targetObj = payloadData;
-    if (Array.isArray(payloadData) && payloadData.length > 0) {
-      targetObj = payloadData[0]; // Submission history list top item
+    // Recursively extract target submission object
+    const targetObj = findSubmissionObject(data);
+    if (!targetObj) {
+      console.log('[TUFHub Interceptor] ⏳ Waiting: No submission object found in payload.');
+      return;
     }
 
     const rawVerdict = (targetObj.verdict || targetObj.status || targetObj.submission_status || '').toString().trim().toUpperCase();
@@ -153,7 +175,7 @@ if (typeof __name === 'undefined') {
     const total = targetObj.total_test_cases ?? targetObj.totalTestCases ?? targetObj.total;
 
     // Test cases MUST be 100% passed!
-    if (total === undefined || passed === undefined || total <= 0 || passed < total) {
+    if (total !== undefined && passed !== undefined && total > 0 && passed < total) {
       console.warn(`[TUFHub Interceptor] 🛑 Ignored: Test cases incomplete (${passed}/${total} passed).`);
       return;
     }
