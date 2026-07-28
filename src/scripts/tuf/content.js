@@ -11,22 +11,22 @@ import { getStats, updateStats, isDebounced, safeGetStorage, enqueueOfflineSync,
 import { showToast } from './toast.js';
 import { LANGUAGE_MAP, convertToSlug, addLeadingZeros, sanitizePathSegment } from '../util.js';
 
-console.log('[TUFHub Debug] Content script listening for active submission events.');
+console.log('%c[TUFHub Content Script] 📥 Active submission event listener registered.', 'color: #8b5cf6; font-weight: bold; font-size: 13px;');
 
 let lastSyncTimestamp = 0;
 
 window.addEventListener('TUFHUB_ACCEPTED_SUBMISSION', async (event) => {
   const data = event.detail;
-  console.log('[TUFHub Debug] Accepted submission event received in content script:', data);
+  console.log('%c[TUFHub Content Script] 🎯 TUFHUB_ACCEPTED_SUBMISSION event received!', 'color: #ec4899; font-weight: bold;', data);
 
   if (!data) return;
 
   let code = data.code;
   if (!code || code.trim().length === 0) {
-    console.log('[TUFHub Debug] Code empty in payload. Scraping Monaco editor fallback...');
+    console.log('[TUFHub Content Script] ⚠️ Code empty in payload. Scraping Monaco editor fallback...');
     code = extractCodeFromMonacoFallback();
     if (!code || code.trim().length === 0) {
-      console.warn('[TUFHub Debug] Could not extract solution code. Skipping.');
+      console.warn('[TUFHub Content Script] ❌ Could not extract solution code. Skipping.');
       return;
     }
     data.code = code;
@@ -34,7 +34,7 @@ window.addEventListener('TUFHUB_ACCEPTED_SUBMISSION', async (event) => {
 
   // Prevent duplicate syncs within 4 seconds
   if (Date.now() - lastSyncTimestamp < 4000) {
-    console.log('[TUFHub Debug] Duplicate event ignored (within 4s threshold).');
+    console.log('[TUFHub Content Script] ⏳ Duplicate event ignored (within 4s threshold).');
     return;
   }
 
@@ -65,11 +65,11 @@ async function executeGitHubSync(data) {
   const cleanSub = sanitizePathSegment(subTopic);
   const folderPath = `${cleanMain}/${cleanSub}/${slug}`;
 
-  console.log('[TUFHub Debug] Processing active submission for hierarchy path:', folderPath);
+  console.log('[TUFHub Sync Engine] 🚀 Target Hierarchy Path:', folderPath);
 
   const debounced = await isDebounced(slug, 5000);
   if (debounced) {
-    console.log(`[TUFHub Debug] Cooldown active for ${slug}. Skipping duplicate.`);
+    console.log(`[TUFHub Sync Engine] ⏳ Cooldown active for ${slug}. Skipping duplicate.`);
     showToast(`Already synced ${rawTitle} recently.`, 'info');
     return;
   }
@@ -82,7 +82,7 @@ async function executeGitHubSync(data) {
     const hook = storage.tufhub_hook;
 
     if (!token || !hook) {
-      console.warn('[TUFHub Debug] Token or Hook missing from storage!');
+      console.warn('[TUFHub Sync Engine] ❌ Token or Hook missing from storage!');
       showToast('GitHub not connected. Click [Fix it] to link account.', 'error', 'AUTH_REQUIRED', () => {
         chrome.runtime.sendMessage({ type: 'OPEN_POPUP' });
       });
@@ -102,8 +102,8 @@ async function executeGitHubSync(data) {
     const stats = await getStats();
     const existingShas = stats.shas[slug] || {};
 
-    console.log(`[TUFHub Debug] Target path: ${folderPath}/${codeFileName}`);
-    console.log('[TUFHub Debug] Starting parallel uploads to GitHub repo:', hook);
+    console.log(`[TUFHub Sync Engine] 📦 File: ${folderPath}/${codeFileName}`);
+    console.log('[TUFHub Sync Engine] 📤 Uploading to GitHub repo:', hook);
 
     // 1. Upload solution code and problem README in parallel
     const [codeSha, readmeSha] = await Promise.all([
@@ -111,7 +111,7 @@ async function executeGitHubSync(data) {
       uploadToGitHub(token, hook, `${folderPath}/README.md`, problemReadmeContent, `Create README for ${rawTitle} - TUFHub`, existingShas['README.md'] || '')
     ]);
 
-    console.log('[TUFHub Debug] Solution code & README uploaded successfully!');
+    console.log('[TUFHub Sync Engine] ✅ Solution code & README uploaded successfully!');
 
     // 2. Update local stats
     const updatedStats = await updateStats(data.difficulty, slug, {
@@ -126,9 +126,9 @@ async function executeGitHubSync(data) {
     // 3. Update root README index (Fail-safe wrapper)
     try {
       await updateRootReadme(token, hook, cleanMain, cleanSub, slug, updatedStats);
-      console.log('[TUFHub Debug] Root README updated successfully!');
+      console.log('[TUFHub Sync Engine] ✅ Root README updated successfully!');
     } catch (rootErr) {
-      console.warn('[TUFHub Debug] Root README update warning (non-critical):', rootErr);
+      console.warn('[TUFHub Sync Engine] ⚠️ Root README update warning (non-critical):', rootErr);
     }
 
     // 4. Notify background worker to trigger success badge
@@ -138,7 +138,7 @@ async function executeGitHubSync(data) {
     showToast(`Synced ${rawTitle} to GitHub!`, 'success');
 
   } catch (err) {
-    console.error('[TUFHub Debug] Sync Error:', err);
+    console.error('[TUFHub Sync Engine] ❌ Sync Error:', err);
     let reasonCode = 'SYNC_ERROR';
     if (!navigator.onLine) {
       reasonCode = 'NO_INTERNET';
@@ -159,7 +159,7 @@ async function flushOfflineQueue() {
   const queue = await getOfflineQueue();
   if (queue.length === 0) return;
 
-  console.log(`[TUFHub Debug] Internet connection restored. Flushing ${queue.length} offline items...`);
+  console.log(`[TUFHub Sync Engine] 📡 Internet connection restored. Flushing ${queue.length} offline items...`);
   showToast(`Internet restored. Retrying ${queue.length} queued syncs...`, 'syncing');
 
   await clearOfflineQueue();
@@ -168,7 +168,7 @@ async function flushOfflineQueue() {
     try {
       await executeGitHubSync(item.syncData);
     } catch (e) {
-      console.error('[TUFHub Debug] Offline queue flush error:', e);
+      console.error('[TUFHub Sync Engine] ❌ Offline queue flush error:', e);
     }
   }
 }

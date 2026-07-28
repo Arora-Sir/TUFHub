@@ -4,11 +4,21 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
+if (typeof __name === 'undefined') {
+  var __name = function (target, value) {
+    try {
+      return Object.defineProperty(target, 'name', { value: value, configurable: true });
+    } catch (e) {
+      return target;
+    }
+  };
+}
+
 (function () {
   if (window.__TUFHUB_INTERCEPTOR_INITED__) return;
   window.__TUFHUB_INTERCEPTOR_INITED__ = true;
 
-  console.log('[TUFHub Debug] Main world fetch/XHR interceptor active.');
+  console.log('%c[TUFHub Interceptor] 🚀 MAIN world fetch/XHR hook active.', 'color: #22c55e; font-weight: bold; font-size: 13px;');
 
   let cachedProblemDescription = '';
   let cachedProblemTitle = '';
@@ -93,6 +103,7 @@
         const prob = data.data || data.problem || data;
         if (prob.description) cachedProblemDescription = prob.description;
         if (prob.title || prob.name) cachedProblemTitle = prob.title || prob.name;
+        console.log('[TUFHub Interceptor] 📝 Cached problem metadata:', { title: cachedProblemTitle, descLength: cachedProblemDescription.length });
       } catch (e) {}
     }
 
@@ -100,6 +111,8 @@
     if (method === 'GET' && !urlStr.includes('/submission') && !urlStr.includes('/result')) {
       return;
     }
+
+    console.log('[TUFHub Interceptor] 📡 Intercepted API Response:', { method, url: urlStr, data });
 
     // 2. Extract verdict, passed, total test cases
     const payloadData = data.data || data;
@@ -117,7 +130,7 @@
 
     if (isAccepted) {
       if (total !== undefined && passed !== undefined && total > 0 && passed < total) {
-        console.log(`[TUFHub Debug] Submission test cases incomplete (${passed}/${total}). Skipping.`);
+        console.warn(`[TUFHub Interceptor] ⚠️ Submission test cases incomplete (${passed}/${total}). Skipping.`);
         return;
       }
 
@@ -125,7 +138,7 @@
       if (submissionId === lastProcessedSubmissionId) return;
       lastProcessedSubmissionId = submissionId;
 
-      console.log('[TUFHub Debug] 100% Passed Submission ACCEPTED!', { method, url: urlStr, verdict, passed, total });
+      console.log('%c[TUFHub Interceptor] ✅ 100% PASSED SUBMISSION ACCEPTED!', 'color: #3b82f6; font-weight: bold; font-size: 13px;', { method, url: urlStr, verdict, passed, total });
 
       const code = payloadData.code || payloadData.solution || payloadData.source_code || extractCodeFromMonaco();
       const language = payloadData.language || payloadData.lang || extractLanguageFromDOM();
@@ -136,6 +149,8 @@
       const title = cachedProblemTitle || (titleElem ? titleElem.innerText.trim() : '');
       const difficulty = diffElem ? diffElem.innerText.trim() : 'Medium';
       const description = extractDescriptionFromDOM();
+
+      console.log('[TUFHub Interceptor] 📤 Dispatching TUFHUB_ACCEPTED_SUBMISSION custom event...');
 
       window.dispatchEvent(new CustomEvent('TUFHUB_ACCEPTED_SUBMISSION', {
         detail: {
