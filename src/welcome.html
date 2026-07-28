@@ -163,14 +163,19 @@
         </p>
         <ol class="instruction-list">
           <li>
-            <a href="https://github.com/settings/applications/new" target="_blank" rel="noopener noreferrer" class="helper-link">Click here to register a new OAuth App on GitHub</a>
+            <a id="register-oauth-link" href="https://github.com/settings/applications/new" target="_blank" rel="noopener noreferrer" class="helper-link">Click here to register a new OAuth App on GitHub</a> (Pre-fills name & callback URL automatically)
           </li>
-          <li>Set Application Name to <strong><code>TUFHub</code></strong> and Homepage URL to <strong><code>https://github.com/&lt;your-username&gt;/TUFHub</code></strong>.</li>
+          <li>Set Application Name to <strong><code>TUFHub</code></strong> and Homepage URL to <strong><code>https://github.com/</code></strong>.</li>
           <li>Set <strong>Authorization callback URL</strong> to your Chrome Extension redirect URI below:</li>
         </ol>
 
+        <div class="code-box" style="margin-bottom: 10px;">
+          <span>Homepage: <code id="homepage-url-text">https://github.com/</code></span>
+          <button id="copy-homepage-btn" class="copy-chip" style="font-size: 0.8rem; padding: 4px 10px;">Copy Homepage URL</button>
+        </div>
+
         <div class="code-box">
-          <code id="callback-uri-text">https://...chromiumapp.org/</code>
+          <span>Callback: <code id="callback-uri-text">https://...chromiumapp.org/</code></span>
           <button id="copy-callback-btn" class="copy-chip" style="font-size: 0.8rem; padding: 4px 10px;">Copy Callback URL</button>
         </div>
 

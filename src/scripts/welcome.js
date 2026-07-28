@@ -23,6 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const clientSecretInput = document.getElementById('client-secret-input');
   const authBtn = document.getElementById('auth-btn');
 
+  const registerOauthLink = document.getElementById('register-oauth-link');
+  const copyHomepageBtn = document.getElementById('copy-homepage-btn');
   const callbackUriText = document.getElementById('callback-uri-text');
   const copyCallbackBtn = document.getElementById('copy-callback-btn');
 
@@ -31,10 +33,26 @@ document.addEventListener('DOMContentLoaded', () => {
   const privateToggle = document.getElementById('private-toggle');
   const welcomeRepoLink = document.getElementById('welcome-repo-link');
 
-  // Populate Chrome Identity Callback Redirect URI
+  // Populate Chrome Identity Callback Redirect URI & Auto-Prefill OAuth Application Registration
   const redirectUri = chrome.identity ? chrome.identity.getRedirectURL() : 'https://<extension-id>.chromiumapp.org/';
   if (callbackUriText) {
     callbackUriText.innerText = redirectUri;
+  }
+
+  if (registerOauthLink) {
+    const prefillUrl = `https://github.com/settings/applications/new?oauth_application[name]=TUFHub&oauth_application[url]=https://github.com/&oauth_application[callback_url]=${encodeURIComponent(redirectUri)}`;
+    registerOauthLink.href = prefillUrl;
+  }
+
+  if (copyHomepageBtn) {
+    copyHomepageBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText('https://github.com/').then(() => {
+        copyHomepageBtn.innerText = 'Copied!';
+        setTimeout(() => {
+          copyHomepageBtn.innerText = 'Copy Homepage URL';
+        }, 2000);
+      });
+    });
   }
 
   if (copyCallbackBtn) {
