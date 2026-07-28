@@ -46,13 +46,17 @@
       "16": "assets/icons/icon16.png",
       "32": "assets/icons/icon32.png",
       "48": "assets/icons/icon48.png",
-      "128": "assets/icons/icon128.png"
+      "128": "assets/icons/icon128.png",
+      "256": "assets/icons/icon256.png",
+      "512": "assets/icons/icon512.png"
     }
   },
   "icons": {
     "16": "assets/icons/icon16.png",
     "32": "assets/icons/icon32.png",
     "48": "assets/icons/icon48.png",
-    "128": "assets/icons/icon128.png"
+    "128": "assets/icons/icon128.png",
+    "256": "assets/icons/icon256.png",
+    "512": "assets/icons/icon512.png"
   }
 }
