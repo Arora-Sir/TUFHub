@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const connectBtn = document.getElementById('connect-btn');
   const disconnectBtn = document.getElementById('disconnect-btn');
   const userHandle = document.getElementById('user-handle');
+  const devProfileLink = document.getElementById('dev-profile-link');
   const repoLink = document.getElementById('repo-link');
 
   const statSolved = document.getElementById('stat-solved');
@@ -35,7 +36,11 @@ document.addEventListener('DOMContentLoaded', () => {
       authSection.classList.remove('hidden');
       disconnectBtn.classList.remove('hidden');
 
-      userHandle.innerText = `@${res.tufhub_username || 'Arora-Sir'}`;
+      const handle = res.tufhub_username || 'Arora-Sir';
+      userHandle.innerText = `@${handle}`;
+      if (devProfileLink) {
+        devProfileLink.href = `https://github.com/${handle}`;
+      }
       repoLink.href = `https://github.com/${res.tufhub_hook}`;
 
       renderStats(res.stats);

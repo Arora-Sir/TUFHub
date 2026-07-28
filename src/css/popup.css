@@ -74,8 +74,32 @@ html, body {
 .user-badge {
   display: flex;
   align-items: center;
-  gap: 8px;
   margin-bottom: 12px;
+}
+
+.dev-badge-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: var(--text-main);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: var(--transition-spring);
+}
+
+.dev-badge-link:hover {
+  background: rgba(249, 115, 22, 0.12);
+  border-color: rgba(249, 115, 22, 0.3);
+  color: var(--accent-orange);
+  transform: translateY(-1px);
+}
+
+.ext-icon {
+  font-size: 0.75rem;
+  opacity: 0.6;
 }
 
 .status-dot {
@@ -244,6 +268,23 @@ html, body {
 
 .copy-chip:hover {
   background: var(--accent-orange-hover);
+}
+
+.popup-footer {
+  margin-top: 12px;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.dev-footer-link {
+  color: var(--accent-orange);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.dev-footer-link:hover {
+  text-decoration: underline;
 }
 
 .hidden {
