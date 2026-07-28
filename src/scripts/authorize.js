@@ -3,7 +3,7 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-export const DEFAULT_CLIENT_ID = '';
+export const DEFAULT_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
 
 export async function requestGitHubAuth(customClientId = '', customClientSecret = '') {
   return new Promise((resolve, reject) => {

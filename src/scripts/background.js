@@ -3,7 +3,7 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-const DEFAULT_CLIENT_ID = '';
+const DEFAULT_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {

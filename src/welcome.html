@@ -161,23 +161,20 @@
         <p class="helper-text">
           Connect using a registered GitHub OAuth Application.
         </p>
+
+        <div class="prefill-highlight-card" style="background: rgba(88, 166, 255, 0.08); border: 1px solid rgba(88, 166, 255, 0.3); border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <p style="margin: 0 0 10px 0; font-size: 0.9rem; color: #c9d1d9;">
+            ⚡ <strong>Automatic 1-Click Registration:</strong> The link below opens GitHub with Application Name, Homepage URL, and Callback URL <strong>pre-filled automatically</strong> for your browser!
+          </p>
+          <a id="register-oauth-link" href="https://github.com/settings/applications/new" target="_blank" rel="noopener noreferrer" class="profile-cta primary-btn" style="display: inline-block; text-decoration: none; text-align: center; font-size: 0.88rem; width: auto; padding: 8px 16px;">
+            Register OAuth App on GitHub ↗
+          </a>
+        </div>
+
         <ol class="instruction-list">
-          <li>
-            <a id="register-oauth-link" href="https://github.com/settings/applications/new" target="_blank" rel="noopener noreferrer" class="helper-link">Click here to register a new OAuth App on GitHub</a> (Pre-fills name & callback URL automatically)
-          </li>
-          <li>Set Application Name to <strong><code>TUFHub</code></strong> and Homepage URL to <strong><code>https://github.com/</code></strong>.</li>
-          <li>Set <strong>Authorization callback URL</strong> to your Chrome Extension redirect URI below:</li>
+          <li>Click the registration button above to open GitHub.</li>
+          <li>Click <strong>Register application</strong> on GitHub, then paste your generated <strong>Client ID</strong> and <strong>Client Secret</strong> below:</li>
         </ol>
-
-        <div class="code-box" style="margin-bottom: 10px;">
-          <span>Homepage: <code id="homepage-url-text">https://github.com/</code></span>
-          <button id="copy-homepage-btn" class="copy-chip" style="font-size: 0.8rem; padding: 4px 10px;">Copy Homepage URL</button>
-        </div>
-
-        <div class="code-box">
-          <span>Callback: <code id="callback-uri-text">https://...chromiumapp.org/</code></span>
-          <button id="copy-callback-btn" class="copy-chip" style="font-size: 0.8rem; padding: 4px 10px;">Copy Callback URL</button>
-        </div>
 
         <input type="text" id="client-id-input" class="input-field" value="" placeholder="GitHub Client ID (from Developer Settings)" />
         <input type="password" id="client-secret-input" class="input-field" placeholder="GitHub Client Secret (from Developer Settings)" />

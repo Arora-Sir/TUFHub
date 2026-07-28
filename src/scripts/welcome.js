@@ -24,9 +24,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const authBtn = document.getElementById('auth-btn');
 
   const registerOauthLink = document.getElementById('register-oauth-link');
-  const copyHomepageBtn = document.getElementById('copy-homepage-btn');
-  const callbackUriText = document.getElementById('callback-uri-text');
-  const copyCallbackBtn = document.getElementById('copy-callback-btn');
 
   const createRepoBtn = document.getElementById('create-repo-btn');
   const repoNameInput = document.getElementById('repo-name-input');
@@ -35,35 +32,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Populate Chrome Identity Callback Redirect URI & Auto-Prefill OAuth Application Registration
   const redirectUri = chrome.identity ? chrome.identity.getRedirectURL() : 'https://<extension-id>.chromiumapp.org/';
-  if (callbackUriText) {
-    callbackUriText.innerText = redirectUri;
-  }
 
   if (registerOauthLink) {
     const prefillUrl = `https://github.com/settings/applications/new?oauth_application[name]=TUFHub&oauth_application[url]=https://github.com/&oauth_application[callback_url]=${encodeURIComponent(redirectUri)}`;
     registerOauthLink.href = prefillUrl;
-  }
-
-  if (copyHomepageBtn) {
-    copyHomepageBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText('https://github.com/').then(() => {
-        copyHomepageBtn.innerText = 'Copied!';
-        setTimeout(() => {
-          copyHomepageBtn.innerText = 'Copy Homepage URL';
-        }, 2000);
-      });
-    });
-  }
-
-  if (copyCallbackBtn) {
-    copyCallbackBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(redirectUri).then(() => {
-        copyCallbackBtn.innerText = 'Copied!';
-        setTimeout(() => {
-          copyCallbackBtn.innerText = 'Copy Callback URL';
-        }, 2000);
-      });
-    });
   }
 
   // Tab switching

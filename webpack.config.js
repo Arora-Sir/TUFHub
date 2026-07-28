@@ -1,5 +1,9 @@
 const path = require('path');
+const webpack = require('webpack');
 const CopyPlugin = require('copy-webpack-plugin');
+
+// Load environment variables from .env file if available
+require('dotenv').config();
 
 module.exports = {
   entry: {
@@ -24,6 +28,10 @@ module.exports = {
     ],
   },
   plugins: [
+    new webpack.DefinePlugin({
+      'process.env.GITHUB_CLIENT_ID': JSON.stringify(process.env.GITHUB_CLIENT_ID || ''),
+      'process.env.GITHUB_CLIENT_SECRET': JSON.stringify(process.env.GITHUB_CLIENT_SECRET || ''),
+    }),
     new CopyPlugin({
       patterns: [
         { from: 'src/manifest.json', to: 'manifest.json' },
@@ -38,3 +46,4 @@ module.exports = {
     extensions: ['.js'],
   },
 };
+

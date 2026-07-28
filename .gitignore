@@ -3,3 +3,7 @@ dist/
 graphify-out/
 .DS_Store
 *.log
+.env
+.env.local
+*.zip
+
