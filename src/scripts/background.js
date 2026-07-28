@@ -77,8 +77,8 @@ function launchTabOAuthFlow(customClientId, customClientSecret) {
         if (tabId !== authTabId || !changeInfo.url) return;
 
         const url = changeInfo.url;
-        // Check if redirect URI was reached with code parameter
-        if (url.includes('chromiumapp.org') || url.includes('github.com') && url.includes('code=')) {
+        // Check if redirect URI was reached with code or error parameter
+        if (url.includes('code=') || url.includes('error=')) {
           chrome.tabs.onUpdated.removeListener(tabUpdateListener);
           
           try {
