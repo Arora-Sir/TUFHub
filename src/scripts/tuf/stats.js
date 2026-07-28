@@ -114,7 +114,7 @@ export async function updateStats(difficulty, problemSlug, fileShas, mainTopic =
   return stats;
 }
 
-export async function isDebounced(problemSlug, cooldownMs = 180000) {
+export async function isDebounced(problemSlug, cooldownMs = 5000) { // 5 sec cooldown threshold for test execution
   const stats = await getStats();
   const lastTime = stats.last_sync_time ? stats.last_sync_time[problemSlug] : null;
   if (lastTime && (Date.now() - lastTime < cooldownMs)) {

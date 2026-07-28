@@ -20,6 +20,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const upiModal = document.getElementById('upi-modal');
   const copyUpiBtn = document.getElementById('copy-upi-btn');
 
+  function renderStats(stats) {
+    if (!stats) return;
+    statSolved.innerText = stats.solved || 0;
+    statEasy.innerText = stats.easy || 0;
+    statMedium.innerText = stats.medium || 0;
+    statHard.innerText = stats.hard || 0;
+  }
+
   // Load state
   chrome.storage.local.get(['tufhub_token', 'tufhub_username', 'tufhub_hook', 'stats'], (res) => {
     if (res.tufhub_token && res.tufhub_hook) {
@@ -30,16 +38,18 @@ document.addEventListener('DOMContentLoaded', () => {
       userHandle.innerText = `@${res.tufhub_username || 'Arora-Sir'}`;
       repoLink.href = `https://github.com/${res.tufhub_hook}`;
 
-      if (res.stats) {
-        statSolved.innerText = res.stats.solved || 0;
-        statEasy.innerText = res.stats.easy || 0;
-        statMedium.innerText = res.stats.medium || 0;
-        statHard.innerText = res.stats.hard || 0;
-      }
+      renderStats(res.stats);
     } else {
       unauthSection.classList.remove('hidden');
       authSection.classList.add('hidden');
       disconnectBtn.classList.add('hidden');
+    }
+  });
+
+  // Real-time listener for stats updates in background/storage
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.stats) {
+      renderStats(changes.stats.newValue);
     }
   });
 

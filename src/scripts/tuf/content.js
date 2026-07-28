@@ -1,6 +1,6 @@
 /**
  * TUFHub Content Script (ISOLATED World)
- * Strict Trigger: ONLY syncs on "Submit code" (Ctrl+Enter), EXCLUDING "Try..." / "Run"!
+ * Multi-layer detection: Robust Rocket Submit Button + Capture Phase Ctrl+Enter
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -11,7 +11,7 @@ import { getStats, updateStats, isDebounced, safeGetStorage } from './stats.js';
 import { showToast } from './toast.js';
 import { LANGUAGE_MAP, convertToSlug, addLeadingZeros, sanitizePathSegment } from '../util.js';
 
-console.log('[TUFHub Debug] Content script loaded in isolated world.');
+console.log('[TUFHub Debug] Robust content script loaded in isolated world.');
 
 let lastSyncTimestamp = 0;
 let isUserSubmitting = false;
@@ -23,9 +23,9 @@ window.addEventListener('TUFHUB_ACCEPTED_SUBMISSION', async (event) => {
 
   if (!data) return;
 
-  // ONLY sync if the user explicitly clicked SUBMIT CODE!
+  // ONLY sync if the user explicitly initiated a submission!
   if (!isUserSubmitting) {
-    console.log('[TUFHub Debug] Ignored event - user did not initiate SUBMIT CODE (preventing auto-sync on page load or Try button).');
+    console.log('[TUFHub Debug] Ignored event - user did not initiate submission.');
     return;
   }
 
@@ -36,9 +36,9 @@ window.addEventListener('TUFHUB_ACCEPTED_SUBMISSION', async (event) => {
     return;
   }
 
-  // Prevent double sync within 4 seconds
-  if (Date.now() - lastSyncTimestamp < 4000) {
-    console.log('[TUFHub Debug] Duplicate event ignored (within 4s threshold).');
+  // Prevent double sync within 2 seconds
+  if (Date.now() - lastSyncTimestamp < 2000) {
+    console.log('[TUFHub Debug] Duplicate event ignored (within 2s threshold).');
     return;
   }
 
@@ -64,10 +64,10 @@ async function executeGitHubSync(data) {
 
   console.log('[TUFHub Debug] Processing active submission for hierarchy path:', folderPath);
 
-  // Check 3-minute debounce cooldown
-  const debounced = await isDebounced(slug, 180000);
+  // 5-second debounce check
+  const debounced = await isDebounced(slug, 5000);
   if (debounced) {
-    console.log(`[TUFHub Debug] Cooldown active for ${slug} (within 3 min debounce). Skipping.`);
+    console.log(`[TUFHub Debug] Cooldown active for ${slug}. Skipping duplicate.`);
     showToast(`Already synced ${rawTitle} recently.`, 'info');
     return;
   }
@@ -193,28 +193,42 @@ function get2TierHierarchyFromDOM() {
 }
 
 // -------------------------------------------------------------
-// Keyboard Shortcut & Click Monitor (STRICT SUBMIT CODE ONLY!)
+// Universal Capture-Phase Click & Keyboard Shortcut Listener
 // -------------------------------------------------------------
 function setupSubmitClickListeners() {
   document.addEventListener('click', (e) => {
-    const target = e.target.closest('button, [role="button"], [class*="submit"]');
-    if (target) {
-      const txt = (target.innerText || target.getAttribute('aria-label') || '').toLowerCase();
-      // MUST NOT match "Try" or "Run"! Must strictly match "submit" or rocket submit button!
-      if (txt.includes('submit') && !txt.includes('try') && !txt.includes('run')) {
-        console.log('[TUFHub Debug] Strictly SUBMIT CODE button click detected!');
-        triggerUserSubmissionWindow();
-      }
-    }
-  }, true);
+    const target = e.target.closest('button, [role="button"], a, div[class*="button"]');
+    if (!target) return;
 
-  document.addEventListener('keydown', (e) => {
-    // Ctrl + Enter = Submit code. (Ctrl + ' is Try... and is EXCLUDED!)
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-      console.log('[TUFHub Debug] Strictly Ctrl + Enter SUBMIT shortcut detected!');
+    const text = (target.innerText || target.getAttribute('aria-label') || target.title || '').toLowerCase();
+    const html = (target.innerHTML || '').toLowerCase();
+
+    // Ignore explicit Try/Run/Reset/Clear buttons
+    if (text.includes('try') || text.includes('run') || text.includes('reset') || text.includes('console')) {
+      return;
+    }
+
+    // Match Rocket Submit Button or Submit text
+    const isSubmit = 
+      text.includes('submit') || 
+      html.includes('submit') ||
+      target.className.toString().toLowerCase().includes('submit') ||
+      html.includes('rocket') ||
+      html.includes('svg');
+
+    if (isSubmit) {
+      console.log('[TUFHub Debug] Universal Submit button click detected!');
       triggerUserSubmissionWindow();
     }
-  });
+  }, true); // useCapture = true
+
+  document.addEventListener('keydown', (e) => {
+    // Capture Ctrl + Enter / Cmd + Enter
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'Enter' || e.keyCode === 13)) {
+      console.log('[TUFHub Debug] Capture phase Ctrl+Enter detected!');
+      triggerUserSubmissionWindow();
+    }
+  }, true); // useCapture = true
 }
 
 function triggerUserSubmissionWindow() {
@@ -223,15 +237,15 @@ function triggerUserSubmissionWindow() {
 
   submitTimeout = setTimeout(() => {
     isUserSubmitting = false;
-    console.log('[TUFHub Debug] User submission window closed (15s timeout).');
-  }, 15000);
+    console.log('[TUFHub Debug] User submission window closed (20s timeout).');
+  }, 20000);
 
   pollForAcceptedVerdict();
 }
 
 function pollForAcceptedVerdict() {
   let checks = 0;
-  console.log('[TUFHub Debug] Polling DOM for verdict after SUBMIT CODE click...');
+  console.log('[TUFHub Debug] Polling DOM for verdict after SUBMIT click...');
   const interval = setInterval(() => {
     checks++;
     if (!isUserSubmitting) {
@@ -243,15 +257,15 @@ function pollForAcceptedVerdict() {
     if (bodyText.includes('Accepted') || bodyText.includes('ACCEPTED') || bodyText.includes('Correct Answer')) {
       console.log('[TUFHub Debug] Verdict text confirmed via polling!');
       clearInterval(interval);
-      if (Date.now() - lastSyncTimestamp > 4000) {
+      if (Date.now() - lastSyncTimestamp > 2000) {
         window.dispatchEvent(new CustomEvent('TUFHUB_TRIGGER_MONACO_SCRAPE'));
       }
     }
-    if (checks > 25) clearInterval(interval);
+    if (checks > 30) clearInterval(interval); // 15s max
   }, 500);
 }
 
-// Initialize only submit click listeners
+// Initialize listeners
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', setupSubmitClickListeners);
 } else {
