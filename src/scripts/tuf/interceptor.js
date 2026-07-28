@@ -1,6 +1,6 @@
 /**
  * TUFHub Page Interceptor (MAIN World)
- * Strictly intercepts active 100% PASSED ACCEPTED POST submissions!
+ * Hooks fetch + XHR to intercept active 100% Passed Accepted submissions!
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -88,52 +88,47 @@
     const urlStr = url.toString().toLowerCase();
 
     // 1. Cache Problem Details when page loads problem data
-    if (urlStr.includes('/plus/problem/') || urlStr.includes('/problem/details') || urlStr.includes('/drafts/tabs')) {
+    if (urlStr.includes('/problem') || urlStr.includes('/drafts')) {
       try {
         const prob = data.data || data.problem || data;
         if (prob.description) cachedProblemDescription = prob.description;
         if (prob.title || prob.name) cachedProblemTitle = prob.title || prob.name;
-        console.log('[TUFHub Debug] Cached problem metadata:', { title: cachedProblemTitle, descLength: cachedProblemDescription.length });
       } catch (e) {}
+    }
+
+    // IGNORE GET requests unless it's submission polling result
+    if (method === 'GET' && !urlStr.includes('/submission') && !urlStr.includes('/result')) {
       return;
     }
 
-    // IGNORE all GET requests & history endpoints
-    if (method === 'GET' || urlStr.includes('/judge/submissions?') || urlStr.includes('/progress') || urlStr.includes('/drafts')) {
-      return;
-    }
+    // 2. Extract verdict, passed, total test cases
+    const payloadData = data.data || data;
+    
+    const verdict = payloadData.verdict || payloadData.status || payloadData.submission_status;
+    const passed = payloadData.passed_test_cases ?? payloadData.passedTestCases ?? payloadData.passed;
+    const total = payloadData.total_test_cases ?? payloadData.totalTestCases ?? payloadData.total;
 
-    // ONLY process POST/PUT endpoints related to judge submission execution or submission result polling
-    if (!urlStr.includes('/judge/submit') && !urlStr.includes('/judge/submission/result') && !urlStr.includes('/judge/run')) {
-      return;
-    }
-
-    // Check 100% test cases passed enforcement
-    const total = data.total_test_cases ?? data.data?.total_test_cases;
-    const passed = data.passed_test_cases ?? data.data?.passed_test_cases;
-
-    if (total !== undefined && passed !== undefined && total > 0 && passed < total) {
-      console.log(`[TUFHub Debug] Submission incomplete (${passed}/${total} test cases passed). Skipping sync.`);
-      return;
-    }
-
+    const isAcceptedStr = verdict ? verdict.toString().toUpperCase() : '';
     const isAccepted = 
-      (data.verdict === 'Accepted' || data.verdict === 'ACCEPTED') ||
-      (data.status === 'SUCCESS' && data.verdict === 'Accepted') ||
-      (data.success === true && (data.verdict === 'Accepted' || data.verdict === 'ACCEPTED')) ||
-      (data.data && (data.data.verdict === 'Accepted' || data.data.verdict === 'ACCEPTED'));
+      isAcceptedStr.includes('ACCEPTED') || 
+      isAcceptedStr.includes('SUCCESS') || 
+      isAcceptedStr.includes('CORRECT') ||
+      payloadData.success === true;
 
     if (isAccepted) {
-      const submissionId = data.submission_id || data.id || data.data?.submission_id || `${urlStr}_${Date.now()}`;
-      if (submissionId === lastProcessedSubmissionId) {
-        return; // Deduplicate poll results
+      if (total !== undefined && passed !== undefined && total > 0 && passed < total) {
+        console.log(`[TUFHub Debug] Submission test cases incomplete (${passed}/${total}). Skipping.`);
+        return;
       }
+
+      const submissionId = payloadData.submission_id || payloadData.id || `${urlStr}_${Date.now()}`;
+      if (submissionId === lastProcessedSubmissionId) return;
       lastProcessedSubmissionId = submissionId;
 
-      console.log('[TUFHub Debug] 100% Passed Active Submission ACCEPTED!', { method, url, data });
+      console.log('[TUFHub Debug] 100% Passed Submission ACCEPTED!', { method, url: urlStr, verdict, passed, total });
 
-      const code = data.code || data.solution || data.source_code || extractCodeFromMonaco();
-      const language = data.language || data.lang || extractLanguageFromDOM();
+      const code = payloadData.code || payloadData.solution || payloadData.source_code || extractCodeFromMonaco();
+      const language = payloadData.language || payloadData.lang || extractLanguageFromDOM();
 
       const titleElem = document.querySelector('h1, [class*="title"], [class*="problem-name"]');
       const diffElem = document.querySelector('[class*="difficulty"], [class*="badge"]');

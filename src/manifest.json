@@ -11,6 +11,7 @@
   ],
   "host_permissions": [
     "https://takeuforward.org/*",
+    "https://*.takeuforward.org/*",
     "https://api.github.com/*",
     "https://gist.githubusercontent.com/*"
   ],
