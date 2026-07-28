@@ -6,57 +6,67 @@
   <title>Welcome to TUFHub</title>
   <link rel="stylesheet" href="css/popup.css">
   <style>
-    html, body {
+    html {
+      min-height: 100vh;
+      background: #0d0d0f;
+    }
+    body {
+      min-height: 100vh;
       width: 100vw;
-      height: 100vh;
+      margin: 0;
+      padding: 28px 0;
       display: flex;
       justify-content: center;
       align-items: center;
       background: #0d0d0f;
-      font-size: 16px;
+      font-size: 15px;
+      overflow-y: auto;
+      box-sizing: border-box;
     }
     .welcome-card {
-      width: 620px;
-      max-width: 94vw;
-      padding: 36px;
-      border-radius: 20px;
+      width: 540px;
+      max-width: 92vw;
+      padding: 28px;
+      border-radius: 18px;
       box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+      margin: auto;
+      box-sizing: border-box;
     }
     .step-title {
-      font-size: 1.45rem;
+      font-size: 1.3rem;
       font-weight: 700;
       color: var(--accent-orange);
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
     .input-field {
       width: 100%;
-      padding: 13px 16px;
-      margin-bottom: 16px;
+      padding: 11px 14px;
+      margin-bottom: 14px;
       border-radius: var(--radius-md);
       border: 1px solid var(--card-border);
       background: rgba(0, 0, 0, 0.45);
       color: white;
       box-sizing: border-box;
       font-family: inherit;
-      font-size: 1rem;
+      font-size: 0.92rem;
     }
     .input-field:focus {
       outline: none;
       border-color: var(--accent-orange);
-      box-shadow: 0 0 12px rgba(249, 115, 22, 0.25);
+      box-shadow: 0 0 10px rgba(249, 115, 22, 0.25);
     }
     .toggle-row {
       display: flex;
       align-items: center;
-      gap: 10px;
-      margin-bottom: 20px;
-      font-size: 0.95rem;
+      gap: 8px;
+      margin-bottom: 16px;
+      font-size: 0.88rem;
     }
     .helper-text {
-      font-size: 1rem;
+      font-size: 0.9rem;
       color: var(--text-muted);
-      margin-bottom: 18px;
-      line-height: 1.6;
+      margin-bottom: 14px;
+      line-height: 1.5;
     }
     .helper-link {
       color: var(--accent-orange);
@@ -69,13 +79,13 @@
     }
     .tab-row {
       display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
+      gap: 8px;
+      margin-bottom: 16px;
     }
     .tab-btn {
       flex: 1;
-      padding: 10px 16px;
-      font-size: 0.95rem;
+      padding: 9px 12px;
+      font-size: 0.88rem;
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid var(--card-border);
       color: var(--text-muted);
@@ -94,31 +104,31 @@
       align-items: center;
       justify-content: space-between;
       background: rgba(0, 0, 0, 0.55);
-      padding: 10px 16px;
+      padding: 8px 12px;
       border-radius: var(--radius-md);
       border: 1px solid rgba(255, 255, 255, 0.12);
-      margin: 10px 0 18px 0;
-      font-size: 0.92rem;
+      margin: 8px 0 14px 0;
+      font-size: 0.85rem;
       word-break: break-all;
     }
     .instruction-list {
-      margin: 10px 0 18px 22px;
+      margin: 8px 0 14px 18px;
       padding: 0;
-      font-size: 0.98rem;
+      font-size: 0.88rem;
       color: var(--text-muted);
-      line-height: 1.7;
+      line-height: 1.6;
     }
     .profile-cta {
-      font-size: 1.05rem !important;
-      padding: 12px 20px !important;
+      font-size: 0.95rem !important;
+      padding: 10px 16px !important;
     }
   </style>
 </head>
 <body>
   <div class="card welcome-card">
-    <div class="brand" style="margin-bottom: 24px;">
-      <span class="logo-icon" style="font-size: 2.2rem;">🔗</span>
-      <span class="brand-title" style="font-size: 1.8rem;">Welcome to TUFHub</span>
+    <div class="brand" style="margin-bottom: 20px;">
+      <span class="logo-icon" style="font-size: 2rem;">🔗</span>
+      <span class="brand-title" style="font-size: 1.6rem;">Welcome to TUFHub</span>
     </div>
 
     <!-- Step 1: Connect -->
@@ -161,7 +171,7 @@
 
         <div class="code-box">
           <code id="callback-uri-text">https://...chromiumapp.org/</code>
-          <button id="copy-callback-btn" class="copy-chip" style="font-size: 0.82rem; padding: 5px 12px;">Copy Callback URL</button>
+          <button id="copy-callback-btn" class="copy-chip" style="font-size: 0.78rem; padding: 4px 10px;">Copy Callback URL</button>
         </div>
 
         <input type="text" id="client-id-input" class="input-field" value="Ov23liKuq2RDSbo3gYPo" placeholder="GitHub Client ID" />
@@ -187,8 +197,8 @@
     <!-- Step 3: All Set -->
     <div id="step-3" class="step-box hidden">
       <div class="step-title">🎉 You're All Set!</div>
-      <p class="helper-text" style="margin-bottom: 28px;">Your solutions will now auto-sync every time you get an Accepted verdict on TUF+.</p>
-      <div style="display: flex; gap: 14px;">
+      <p class="helper-text" style="margin-bottom: 24px;">Your solutions will now auto-sync every time you get an Accepted verdict on TUF+.</p>
+      <div style="display: flex; gap: 12px;">
         <a href="https://takeuforward.org/plus" target="_blank" rel="noopener noreferrer" class="profile-cta primary-btn">Go to TUF+ →</a>
         <a id="welcome-repo-link" href="#" target="_blank" rel="noopener noreferrer" class="profile-cta secondary-btn">View Repository</a>
       </div>
