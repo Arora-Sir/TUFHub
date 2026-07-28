@@ -1,0 +1,26 @@
+{
+  "name": "tufhub",
+  "version": "1.0.0",
+  "description": "Automatically sync your TakeUForward (TUF+) accepted solutions to GitHub.",
+  "main": "scripts/background.js",
+  "scripts": {
+    "build": "webpack --mode production",
+    "watch": "webpack --mode development --watch"
+  },
+  "keywords": [
+    "takeuforward",
+    "leetcode",
+    "github",
+    "chrome-extension",
+    "dsa"
+  ],
+  "author": "Mohit Arora (Arora-Sir)",
+  "license": "MIT",
+  "devDependencies": {
+    "copy-webpack-plugin": "^12.0.2",
+    "css-loader": "^6.10.0",
+    "style-loader": "^3.3.4",
+    "webpack": "^5.90.3",
+    "webpack-cli": "^5.1.4"
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "TUFHub",
+  "version": "1.0.0",
+  "description": "Automatically sync your TakeUForward (TUF+) accepted solutions to GitHub.",
+  "permissions": [
+    "storage",
+    "identity",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://takeuforward.org/*",
+    "https://api.github.com/*",
+    "https://gist.githubusercontent.com/*"
+  ],
+  "background": {
+    "service_worker": "scripts/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://takeuforward.org/plus/*"
+      ],
+      "js": [
+        "scripts/tuf/interceptor.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://takeuforward.org/plus/*"
+      ],
+      "js": [
+        "scripts/tuf/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  }
+}

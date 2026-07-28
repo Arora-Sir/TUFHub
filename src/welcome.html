@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to TUFHub</title>
+  <link rel="stylesheet" href="css/popup.css">
+  <style>
+    body {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #09090b;
+    }
+    .welcome-card {
+      width: 480px;
+      max-width: 92vw;
+      padding: 32px;
+    }
+    .step-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--accent-orange);
+      margin-bottom: 12px;
+    }
+    .input-field {
+      width: 100%;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--card-border);
+      background: rgba(0, 0, 0, 0.4);
+      color: white;
+      box-sizing: border-box;
+      font-family: inherit;
+      font-size: 0.9rem;
+    }
+    .input-field:focus {
+      outline: none;
+      border-color: var(--accent-orange);
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      font-size: 0.85rem;
+    }
+    .helper-text {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+      line-height: 1.4;
+    }
+    .helper-link {
+      color: var(--accent-orange);
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    .tab-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 6px;
+      font-size: 0.8rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+    }
+    .tab-btn.active {
+      background: rgba(249, 115, 22, 0.15);
+      border-color: var(--accent-orange);
+      color: var(--accent-orange);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="card welcome-card">
+    <div class="brand" style="margin-bottom: 20px;">
+      <span class="logo-icon" style="font-size: 1.8rem;">🔗</span>
+      <span class="brand-title" style="font-size: 1.5rem;">Welcome to TUFHub</span>
+    </div>
+
+    <!-- Step 1: Connect -->
+    <div id="step-1" class="step-box">
+      <div class="step-title">Step 1: Connect your GitHub Account</div>
+
+      <div class="tab-row">
+        <button id="tab-pat" class="tab-btn active">Personal Access Token (Recommended)</button>
+        <button id="tab-oauth" class="tab-btn">GitHub OAuth App</button>
+      </div>
+
+      <!-- PAT Auth -->
+      <div id="pat-auth-box">
+        <p class="helper-text">
+          Create a GitHub Personal Access Token with <code>repo</code> scope to allow TUFHub to commit solutions.
+          <br><br>
+          👉 <a href="https://github.com/settings/tokens/new?description=TUFHub&scopes=repo" target="_blank" rel="noopener noreferrer" class="helper-link">Click here to generate token on GitHub</a> (Pre-configured with repo permission)
+        </p>
+        <input type="password" id="pat-input" class="input-field" placeholder="Paste GitHub Token (ghp_... or github_pat_...)" />
+        <button id="save-pat-btn" class="profile-cta primary-btn">Save Token & Continue →</button>
+      </div>
+
+      <!-- OAuth Auth -->
+      <div id="oauth-auth-box" class="hidden">
+        <p class="helper-text">
+          Authenticate using your registered GitHub OAuth App (Client ID: <code>Ov23liKuq2RDSbo3gYPo</code>).
+        </p>
+        <input type="text" id="client-id-input" class="input-field" value="Ov23liKuq2RDSbo3gYPo" placeholder="GitHub Client ID" />
+        <input type="password" id="client-secret-input" class="input-field" placeholder="GitHub Client Secret (from developer settings)" />
+        <button id="auth-btn" class="profile-cta primary-btn">Launch GitHub OAuth Flow</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Create Repo -->
+    <div id="step-2" class="step-box hidden">
+      <div class="step-title">Step 2: Create Solutions Repository</div>
+      <p class="card-subtitle">Set up the dedicated repository to store your code and READMEs.</p>
+      <input type="text" id="repo-name-input" class="input-field" value="TUF-Solutions" placeholder="Repository Name">
+      
+      <div class="toggle-row">
+        <input type="checkbox" id="private-toggle" checked>
+        <label for="private-toggle">Make repository private (Recommended)</label>
+      </div>
+
+      <button id="create-repo-btn" class="profile-cta primary-btn">Create Repository & Finish Setup →</button>
+    </div>
+
+    <!-- Step 3: All Set -->
+    <div id="step-3" class="step-box hidden">
+      <div class="step-title">🎉 You're All Set!</div>
+      <p class="card-subtitle" style="margin-bottom: 24px;">Your solutions will now auto-sync every time you get an Accepted verdict on TUF+.</p>
+      <div style="display: flex; gap: 12px;">
+        <a href="https://takeuforward.org/plus" target="_blank" rel="noopener noreferrer" class="profile-cta primary-btn">Go to TUF+ →</a>
+        <a id="welcome-repo-link" href="#" target="_blank" rel="noopener noreferrer" class="profile-cta secondary-btn">View Repo</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="scripts/welcome.js"></script>
+</body>
+</html>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TUFHub</title>
+  <link rel="stylesheet" href="css/popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="popup-header">
+      <div class="brand">
+        <span class="logo-icon">🔗</span>
+        <span class="brand-title">TUFHub</span>
+      </div>
+      <button id="disconnect-btn" class="profile-cta danger-btn" title="Disconnect GitHub">Disconnect</button>
+    </header>
+
+    <main class="popup-body">
+      <!-- Unauthenticated State -->
+      <div id="unauth-section" class="card hidden">
+        <p class="card-subtitle">Connect your GitHub account to auto-sync your TUF+ solutions.</p>
+        <button id="connect-btn" class="profile-cta primary-btn">Connect with GitHub</button>
+      </div>
+
+      <!-- Authenticated State -->
+      <div id="auth-section" class="card">
+        <div class="user-badge">
+          <span class="status-dot"></span>
+          <span id="user-handle" class="user-handle">@Arora-Sir</span>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span id="stat-solved" class="stat-number">0</span>
+            <span class="stat-label">Solved</span>
+          </div>
+          <div class="stat-box">
+            <span id="stat-easy" class="stat-number easy">0</span>
+            <span class="stat-label">Easy</span>
+          </div>
+          <div class="stat-box">
+            <span id="stat-medium" class="stat-number medium">0</span>
+            <span class="stat-label">Medium</span>
+          </div>
+          <div class="stat-box">
+            <span id="stat-hard" class="stat-number hard">0</span>
+            <span class="stat-label">Hard</span>
+          </div>
+        </div>
+
+        <a id="repo-link" href="https://github.com/Arora-Sir/TUF-Solutions" target="_blank" rel="noopener noreferrer" class="profile-cta secondary-btn network-btn">
+          View Repository →
+        </a>
+      </div>
+
+      <!-- Support & Monetization Section -->
+      <section class="support-section">
+        <p class="support-title">Support TUFHub</p>
+        <div class="support-actions">
+          <a id="paypal-btn" href="https://paypal.me/arorasir" target="_blank" rel="noopener noreferrer" class="network-btn support-chip">
+            ☕ PayPal
+          </a>
+          <button id="upi-btn" class="network-btn support-chip">
+            📱 UPI QR Code
+          </button>
+        </div>
+
+        <div id="upi-modal" class="upi-box hidden">
+          <img src="assets/upi_qr.png" alt="UPI QR Code" class="upi-qr-img" onerror="this.style.display='none'">
+          <div class="upi-id-copy">
+            <code>mohit1998arora@yescred</code>
+            <button id="copy-upi-btn" class="copy-chip">Copy</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="scripts/popup.js"></script>
+</body>
+</html>
