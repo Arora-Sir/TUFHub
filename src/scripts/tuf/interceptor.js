@@ -1,7 +1,6 @@
 /**
  * TUFHub Page Interceptor (MAIN World)
- * Hooks window.fetch + XMLHttpRequest
- * MUST ONLY trigger on 100% PASSED ACCEPTED submissions (passed_test_cases === total_test_cases)!
+ * Strictly intercepts active 100% PASSED ACCEPTED POST submissions!
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -13,6 +12,7 @@
 
   let cachedProblemDescription = '';
   let cachedProblemTitle = '';
+  let lastProcessedSubmissionId = '';
 
   function extractCodeFromMonaco() {
     try {
@@ -49,7 +49,6 @@
 
   function extractDescriptionFromDOM() {
     try {
-      // 1. Select the main problem panel container on TUF+
       const panel = 
         document.querySelector('[data-tuf-ai-selectable="true"]') ||
         document.querySelector('.problem-statement')?.closest('div.overflow-y-auto') ||
@@ -58,8 +57,6 @@
 
       if (panel) {
         const clone = panel.cloneNode(true);
-
-        // Remove junk interactive elements, headers, buttons, accordions
         const removeSelectors = [
           'button',
           'svg',
@@ -101,20 +98,22 @@
       return;
     }
 
-    // IGNORE past submission list history, draft tabs, progress GET endpoints!
-    if (urlStr.includes('/judge/submissions') || urlStr.includes('/progress') || urlStr.includes('/drafts') || method === 'GET') {
+    // IGNORE all GET requests & history endpoints
+    if (method === 'GET' || urlStr.includes('/judge/submissions?') || urlStr.includes('/progress') || urlStr.includes('/drafts')) {
       return;
     }
 
-    // 2. Only process POST/PUT submission / judge submit result endpoints
-    const str = typeof data === 'string' ? data : JSON.stringify(data);
-    
+    // ONLY process POST/PUT endpoints related to judge submission execution or submission result polling
+    if (!urlStr.includes('/judge/submit') && !urlStr.includes('/judge/submission/result') && !urlStr.includes('/judge/run')) {
+      return;
+    }
+
     // Check 100% test cases passed enforcement
     const total = data.total_test_cases ?? data.data?.total_test_cases;
     const passed = data.passed_test_cases ?? data.data?.passed_test_cases;
 
     if (total !== undefined && passed !== undefined && total > 0 && passed < total) {
-      console.log(`[TUFHub Debug] Submission NOT 100% passed (${passed}/${total} test cases). Skipping sync.`);
+      console.log(`[TUFHub Debug] Submission incomplete (${passed}/${total} test cases passed). Skipping sync.`);
       return;
     }
 
@@ -125,6 +124,12 @@
       (data.data && (data.data.verdict === 'Accepted' || data.data.verdict === 'ACCEPTED'));
 
     if (isAccepted) {
+      const submissionId = data.submission_id || data.id || data.data?.submission_id || `${urlStr}_${Date.now()}`;
+      if (submissionId === lastProcessedSubmissionId) {
+        return; // Deduplicate poll results
+      }
+      lastProcessedSubmissionId = submissionId;
+
       console.log('[TUFHub Debug] 100% Passed Active Submission ACCEPTED!', { method, url, data });
 
       const code = data.code || data.solution || data.source_code || extractCodeFromMonaco();
@@ -189,25 +194,5 @@
     });
     return originalXSend.apply(this, arguments);
   };
-
-  // 3. Monaco Scrape Event Listener
-  window.addEventListener('TUFHUB_TRIGGER_MONACO_SCRAPE', () => {
-    const code = extractCodeFromMonaco();
-    const language = extractLanguageFromDOM();
-    const titleElem = document.querySelector('h1, [class*="title"], [class*="problem-name"]');
-    const diffElem = document.querySelector('[class*="difficulty"], [class*="badge"]');
-
-    window.dispatchEvent(new CustomEvent('TUFHUB_ACCEPTED_SUBMISSION', {
-      detail: {
-        code,
-        language,
-        title: cachedProblemTitle || (titleElem ? titleElem.innerText.trim() : ''),
-        difficulty: diffElem ? diffElem.innerText.trim() : 'Medium',
-        description: extractDescriptionFromDOM(),
-        url: window.location.href,
-        timestamp: Date.now()
-      }
-    }));
-  });
 
 })();
