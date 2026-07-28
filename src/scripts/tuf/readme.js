@@ -1,5 +1,6 @@
 /**
  * TUFHub Problem README.md Builder
+ * HTML -> Clean Markdown Parser for TUF+ Problem Statements
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -8,14 +9,14 @@ export function buildProblemReadme(data) {
   const diffStr = difficulty || 'Medium';
   const problemUrl = url || 'https://takeuforward.org/plus';
 
-  const cleanDesc = sanitizeDescriptionHTML(description);
+  const cleanDesc = convertTufHtmlToMarkdown(description);
   const badgeColor = diffStr.toLowerCase().includes('easy')
     ? '22c55e'
     : diffStr.toLowerCase().includes('hard')
     ? 'ef4444'
     : 'eab308';
 
-  return `<h1><a href="${problemUrl}">${title}</a></h1>
+  return `# [${title}](${problemUrl})
 
 ![Difficulty: ${diffStr}](https://img.shields.io/badge/Difficulty-${diffStr}-${badgeColor}?style=for-the-badge)
 
@@ -38,38 +39,91 @@ ${cleanDesc}
 `;
 }
 
-function sanitizeDescriptionHTML(html) {
-  if (!html) return 'Problem description available on TUF+.';
+function convertTufHtmlToMarkdown(html) {
+  if (!html || html.trim().length === 0) {
+    return 'Problem description available on TakeUForward (TUF+).';
+  }
 
-  // Create temporary parser in memory
   try {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
 
-    // Remove tab bars, buttons, headers, discussions
+    // Remove unwanted UI buttons, hints, accordions, titles, footers
     const junkSelectors = [
-      '.flexlayout__tabset_tabbar_outer',
-      '[class*="tabbar"]',
       'button',
-      '[role="tab"]',
-      '[class*="discussion"]',
-      '[class*="submissions"]',
-      '[class*="editorial"]'
+      'svg',
+      '.difficulty-badge',
+      '[class*="accordion"]',
+      '[class*="hints"]',
+      '[class*="sticky"]',
+      '[class*="pointer-events-none"]',
+      'h1'
     ];
-
     junkSelectors.forEach(sel => {
       doc.querySelectorAll(sel).forEach(el => el.remove());
     });
 
-    let text = doc.body.innerHTML || doc.body.innerText || '';
-    
-    // Clean up excessive whitespace & lines
-    text = text.replace(/<button[^>]*>.*?<\/button>/gi, '');
-    text = text.replace(/(Description|Editorial|Submissions|Discussion\s*\d*)/gi, '');
-    text = text.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
+    // Remove text matching "Hints", "Doubts", "Follow-ups", "Fun Facts", "Extras"
+    doc.querySelectorAll('*').forEach(el => {
+      const text = (el.innerText || '').trim();
+      if (/^(Hints|Frequently Occurring Doubts|Interview Follow-ups|Fun Facts|Extras|Company|Similar Problems)/i.test(text)) {
+        el.remove();
+      }
+    });
 
-    return text.length > 0 ? text : 'Problem statement available on TakeUForward (TUF+).';
+    let body = doc.body;
+
+    // Convert Examples
+    body.querySelectorAll('.tuf-vstack').forEach(vstack => {
+      const headerElem = vstack.querySelector('.tuf-text-14');
+      const headerText = headerElem ? headerElem.innerText.trim() : '';
+
+      if (/Example\s*\d+/i.test(headerText)) {
+        const exBox = vstack.querySelector('.tuf-example');
+        if (exBox) {
+          const exHtml = exBox.innerHTML
+            .replace(/<strong>Input\s*:?<\/strong>/gi, '\n**Input:** ')
+            .replace(/<strong>Output\s*:?<\/strong>/gi, '\n**Output:** ')
+            .replace(/<strong>Explanation\s*:?<\/strong>/gi, '\n**Explanation:** ');
+          
+          vstack.innerHTML = `<h3>${headerText}</h3><div>${exHtml}</div>`;
+        }
+      } else if (/Constraints/i.test(headerText)) {
+        const constraintBox = vstack.querySelector('.tuf-dark-content-box, ul');
+        const cHtml = constraintBox ? constraintBox.innerHTML : vstack.innerHTML;
+        vstack.innerHTML = `<h3>Constraints</h3><div>${cHtml}</div>`;
+      }
+    });
+
+    let markdown = body.innerHTML;
+
+    // Convert HTML tags to Markdown
+    markdown = markdown
+      .replace(/<h3>(.*?)<\/h3>/gi, '\n\n### $1\n\n')
+      .replace(/<strong>(.*?)<\/strong>/gi, '**$1**')
+      .replace(/<b>(.*?)<\/b>/gi, '**$1**')
+      .replace(/<em>(.*?)<\/em>/gi, '*$1*')
+      .replace(/<i>(.*?)<\/i>/gi, '*$1*')
+      .replace(/<code>(.*?)<\/code>/gi, '`$1`')
+      .replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n')
+      .replace(/<\/?ul[^>]*>/gi, '\n')
+      .replace(/<\/?ol[^>]*>/gi, '\n')
+      .replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n\n')
+      .replace(/<div[^>]*>/gi, '')
+      .replace(/<\/div>/gi, '\n')
+      .replace(/<span[^>]*>/gi, '')
+      .replace(/<\/span>/gi, '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"');
+
+    // Clean up double newlines
+    markdown = markdown.replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
+
+    return markdown.length > 20 ? markdown : 'Problem description available on TakeUForward (TUF+).';
   } catch (e) {
-    return html.replace(/(Description|Editorial|Submissions|Discussion\s*\d*)/gi, '').trim();
+    return html.replace(/<[^>]+>/g, '').trim();
   }
 }

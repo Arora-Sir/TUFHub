@@ -48,20 +48,39 @@
   }
 
   function extractDescriptionFromDOM() {
+    try {
+      // 1. Select the main problem panel container on TUF+
+      const panel = 
+        document.querySelector('[data-tuf-ai-selectable="true"]') ||
+        document.querySelector('.problem-statement')?.closest('div.overflow-y-auto') ||
+        document.querySelector('.problem-statement')?.parentElement?.parentElement ||
+        document.querySelector('[class*="problem-statement"]')?.parentElement;
+
+      if (panel) {
+        const clone = panel.cloneNode(true);
+
+        // Remove junk interactive elements, headers, buttons, accordions
+        const removeSelectors = [
+          'button',
+          'svg',
+          '.difficulty-badge',
+          '[class*="accordion"]',
+          '[class*="hints"]',
+          '[class*="sticky"]',
+          '[class*="pointer-events-none"]'
+        ];
+        removeSelectors.forEach(sel => clone.querySelectorAll(sel).forEach(el => el.remove()));
+
+        const html = clone.innerHTML;
+        if (html && html.trim().length > 30) {
+          return html;
+        }
+      }
+    } catch (e) {}
+
     if (cachedProblemDescription && cachedProblemDescription.length > 20) {
       return cachedProblemDescription;
     }
-
-    try {
-      // Find clean problem statement element (ignoring tabbar headers)
-      const descElem = document.querySelector('[class*="prose"], [class*="markdown"], [id*="problem-statement"]');
-      if (descElem) {
-        const clone = descElem.cloneNode(true);
-        // Remove tabbar elements
-        clone.querySelectorAll('[class*="tabbar"], button, [role="tab"]').forEach(el => el.remove());
-        return clone.innerHTML;
-      }
-    } catch (e) {}
 
     return '';
   }
