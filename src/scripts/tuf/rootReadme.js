@@ -49,7 +49,7 @@ function generateRootReadmeMarkdown(stats) {
 
   let markdown = `# 🚀 TUF-Solutions
 
-> Auto-synced using [TUFHub](https://github.com/Arora-Sir/TUFHub) — TakeUForward (TUF+) Solutions Repository
+> Auto-synced using [TUFHub](https://github.com/Arora-Sir/TUFHub) - TakeUForward (TUF+) Solutions Repository
 
 ## 📊 Solution Progress Summary
 
