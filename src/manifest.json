@@ -3,19 +3,19 @@
   "name": "TUFHub - TakeUForward GitHub Sync",
   "short_name": "TUFHub",
   "version": "1.0.0",
+  "version_name": "1.0.0 - Initial Release",
+  "minimum_chrome_version": "111",
   "description": "Automatically sync your TakeUForward (TUF+) accepted solutions to GitHub.",
   "permissions": [
     "storage",
-    "identity",
     "tabs",
     "scripting"
   ],
   "host_permissions": [
     "https://takeuforward.org/*",
     "https://*.takeuforward.org/*",
-    "https://github.com/*",
-    "https://api.github.com/*",
-    "https://gist.githubusercontent.com/*"
+    "https://github.com/login/oauth/*",
+    "https://api.github.com/*"
   ],
   "background": {
     "service_worker": "scripts/background.js"

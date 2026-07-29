@@ -4,13 +4,8 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-var __name = function (target, value) {
-  try {
-    return Object.defineProperty(target, 'name', { value: value, configurable: true });
-  } catch (e) {
-    return target;
-  }
-};
+
+
 
 (function () {
   if (window.__TUFHUB_INTERCEPTOR_INITED__) return;

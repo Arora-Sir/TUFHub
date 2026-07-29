@@ -30,8 +30,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const privateToggle = document.getElementById('private-toggle');
   const welcomeRepoLink = document.getElementById('welcome-repo-link');
 
-  // Populate Chrome Identity Callback Redirect URI & Auto-Prefill OAuth Application Registration
-  const redirectUri = chrome.identity ? chrome.identity.getRedirectURL() : 'https://<extension-id>.chromiumapp.org/';
+  // Construct OAuth redirect URI using chrome.runtime.id - no identity permission needed
+  const redirectUri = `https://${chrome.runtime.id}.chromiumapp.org/`;
 
   if (registerOauthLink) {
     const prefillUrl = `https://github.com/settings/applications/new?oauth_application[name]=TUFHub&oauth_application[url]=https://github.com/&oauth_application[callback_url]=${encodeURIComponent(redirectUri)}`;

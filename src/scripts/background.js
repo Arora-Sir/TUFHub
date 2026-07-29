@@ -3,7 +3,7 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-const DEFAULT_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
+const DEFAULT_CLIENT_ID = ''; // User provides their own OAuth Client ID via the welcome page
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
@@ -59,7 +59,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 function launchTabOAuthFlow(customClientId, customClientSecret) {
   const clientId = customClientId || DEFAULT_CLIENT_ID;
-  const redirectUri = chrome.identity.getRedirectURL();
+  // Construct OAuth redirect URI using chrome.runtime.id - no identity permission needed
+  const redirectUri = `https://${chrome.runtime.id}.chromiumapp.org/`;
   const state = `tufhub_${Date.now()}`;
   const authUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=repo&state=${state}&redirect_uri=${encodeURIComponent(redirectUri)}`;
 
