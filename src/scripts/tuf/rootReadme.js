@@ -98,8 +98,18 @@ function generateRootReadmeMarkdown(stats) {
         solutionLinks = `[${ext.toUpperCase()}](${fileUrl})`;
       }
 
-      const catBadge = p.folderPath ? p.folderPath.split('/')[0] : 'DSA';
-      markdown += `| ${numStr} | [${p.title}](${folderUrl}) | ${solutionLinks} | ${diffBadge} | \`${catBadge}\` / \`${p.mainTopic || 'General'}\` |\n`;
+      const parts = (p.folderPath || '').split('/');
+      const catName = parts[0] || 'DSA';
+      let topicName = p.mainTopic || parts[1] || 'General';
+      if (topicName.startsWith(catName + '/')) {
+        topicName = topicName.replace(catName + '/', '');
+      }
+
+      const categoryCell = topicName && topicName !== catName && topicName !== 'General'
+        ? `\`${catName}\` / \`${topicName}\``
+        : `\`${catName}\``;
+
+      markdown += `| ${numStr} | [${p.title}](${folderUrl}) | ${solutionLinks} | ${diffBadge} | ${categoryCell} |\n`;
     });
   }
 

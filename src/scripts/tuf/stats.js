@@ -205,8 +205,9 @@ export async function scanAndSyncRepoStats(token, hook) {
               if (slug) {
                 stats.shas[slug] = stats.shas[slug] || { synced: true };
                 const parts = folderPath.split('/');
-                const mainTopic = parts[0] || 'DSA';
-                const subTopic = parts[1] || 'General';
+                const mainCategory = parts[0] || 'DSA';
+                const mainTopic = parts.length > 2 ? parts[1] : (parts[1] && parts[1] !== slug ? parts[1] : 'General');
+                const subTopic = parts.length > 3 ? parts[2] : 'General';
 
                 stats.problems[slug] = {
                   title,

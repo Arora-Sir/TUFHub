@@ -61,6 +61,8 @@ export function resolveHierarchy(data = {}) {
     
     return {
       category: 'SQL',
+      mainTopic: cleanMain,
+      subTopic: cleanSub,
       folderPath: cleanSub !== 'General' ? `SQL/${cleanMain}/${cleanSub}` : `SQL/${cleanMain}`,
       categoryPath: `SQL/${cleanMain}`
     };
@@ -86,6 +88,8 @@ export function resolveHierarchy(data = {}) {
 
     return {
       category: 'Aptitude',
+      mainTopic: cleanMain,
+      subTopic: cleanSub,
       folderPath: cleanSub !== 'General' ? `Aptitude/${cleanMain}/${cleanSub}` : `Aptitude/${cleanMain}`,
       categoryPath: `Aptitude/${cleanMain}`
     };
@@ -101,6 +105,8 @@ export function resolveHierarchy(data = {}) {
 
     return {
       category: 'Mock-Tests',
+      mainTopic: cleanTest,
+      subTopic: 'General',
       folderPath: `Mock-Tests/${cleanTest}`,
       categoryPath: `Mock-Tests/${cleanTest}`
     };
@@ -152,7 +158,9 @@ export function resolveHierarchy(data = {}) {
 
   return {
     category: 'DSA',
-    folderPath: cleanSub !== 'General' ? `DSA/${cleanMain}/${cleanSub}` : `DSA/${cleanMain}`,
+    mainTopic: cleanMain,
+    subTopic: cleanSub,
+    folderPath: `DSA/${cleanMain}`,
     categoryPath: `DSA/${cleanMain}`
   };
 }

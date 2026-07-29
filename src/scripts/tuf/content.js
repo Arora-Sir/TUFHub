@@ -140,14 +140,15 @@ async function executeGitHubSync(data) {
     );
     console.log('[TUFHub Sync Engine] ✅ Problem README uploaded successfully!');
 
-    const mainTopic = routeInfo.categoryPath;
-    const subTopic = routeInfo.category;
+    const mainCategory = routeInfo.category || 'DSA';
+    const mainTopic = routeInfo.mainTopic || 'General';
+    const subTopic = routeInfo.subTopic || 'General';
 
     // 3. Update local stats
     const updatedStats = await updateStats(data.difficulty, slug, {
       [codeFileName]: codeSha,
       'README.md': readmeSha
-    }, mainTopic, subTopic, {
+    }, mainCategory, mainTopic, {
       title: rawTitle,
       codeFileName,
       folderPath
