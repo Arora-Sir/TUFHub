@@ -186,5 +186,5 @@ If TUFHub helps you stay consistent on your coding journey, please consider supp
 ---
 
 <p align="center">
-  Generated with ❤️ by <a href="https://github.com/Arora-Sir">Mohit Arora</a>
+  Crafted with ❤️ for Problem Solvers by <a href="https://github.com/Arora-Sir">Mohit Arora</a>
 </p>
