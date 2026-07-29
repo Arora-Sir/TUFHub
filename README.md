@@ -83,9 +83,8 @@ TUF-Solutions/
 
 ## 💻 Supported Languages
 
-| | | | | |
-| :---: | :---: | :---: | :---: | :---: |
 | **C++** (`.cpp`) | **Java** (`.java`) | **Python** (`.py`) | **JavaScript** (`.js`) | **TypeScript** (`.ts`) |
+| :---: | :---: | :---: | :---: | :---: |
 | **C** (`.c`) | **Go** (`.go`) | **Rust** (`.rs`) | **C#** (`.cs`) | **SQL** (`.sql`) |
 
 ---
