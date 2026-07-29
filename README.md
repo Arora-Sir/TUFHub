@@ -21,7 +21,7 @@
 
 ## What is TUFHub?
 
-TUFHub is a Chrome Extension that automatically syncs your **accepted solutions** from [TakeUForward (TUF+)](https://takeuforward.org/plus) to a GitHub repository - the moment you get an Accepted verdict.
+TUFHub is a Chrome Extension that automatically syncs your **accepted solutions** from [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir) to a GitHub repository - the moment you get an Accepted verdict.
 
 No manual copying. No drag and drop. Just solve, submit, and your solution lands on GitHub instantly.
 
@@ -161,7 +161,7 @@ TUFHub will create the repo on your account and scan it immediately if it alread
 
 Once setup is complete:
 
-1. Go to [TakeUForward TUF+](https://takeuforward.org/plus)
+1. Go to [TakeUForward TUF+](https://takeuforward.org/plus?affiliate=arorasir)
 2. Open any problem under DSA, SQL, Aptitude, or Mock Tests
 3. Write your solution and click **Submit**
 4. When the verdict is **Accepted (100% test cases passed)**, TUFHub automatically:
@@ -286,6 +286,16 @@ No. This is an independent open-source project and is not affiliated with or end
 ## Contributing
 
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+
+---
+
+## ⭐ Support & Community
+
+If TUFHub helps you stay consistent on your coding journey, please consider supporting the project:
+
+- 🎓 **Enroll in TUF+**: Get the official course via [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir)
+- ⭐ **Star this repository**: Give [TUFHub a star on GitHub](https://github.com/Arora-Sir/TUFHub)
+- ☕ **Donate**: Support via [PayPal](https://paypal.me/arorasir) or UPI (`mohit1998arora@yescred`)
 
 ---
 

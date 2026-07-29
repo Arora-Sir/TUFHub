@@ -222,19 +222,37 @@ html, body {
   font-weight: 500;
 }
 
-.support-actions {
-  display: flex;
-  gap: 10px;
+.support-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
 }
 
 .support-chip {
-  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--card-border);
   color: var(--text-main);
-  font-size: 0.85rem;
-  padding: 9px;
+  font-size: 0.82rem;
+  padding: 8px 6px;
   border-radius: var(--radius-md);
+  text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.highlight-chip {
+  background: rgba(249, 115, 22, 0.12);
+  border-color: rgba(249, 115, 22, 0.35);
+  color: #ffedd5;
+  font-weight: 600;
+}
+
+.highlight-chip:hover {
+  background: rgba(249, 115, 22, 0.22);
+  border-color: rgba(249, 115, 22, 0.55);
 }
 
 .upi-box {
