@@ -113,7 +113,7 @@ function generateRootReadmeMarkdown(stats) {
     });
   }
 
-  markdown += `\n---\n*Generated with ❤️ by [TUFHub](https://github.com/Arora-Sir/TUFHub)*\n`;
+  markdown += `\n---\n*Generated with ❤️ by [Mohit Arora](https://github.com/Arora-Sir) using [TUFHub](https://github.com/Arora-Sir/TUFHub)*\n`;
 
   return markdown;
 }
