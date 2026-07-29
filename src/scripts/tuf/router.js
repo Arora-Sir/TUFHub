@@ -181,11 +181,16 @@ export function resolveHierarchy(data = {}) {
 function extractTopicFromPathname(pathname, ignoreKeywords = []) {
   try {
     const parts = pathname.split('/').filter(Boolean);
-    for (let i = parts.length - 1; i >= 0; i--) {
-      const p = parts[i].toLowerCase();
-      if (p === 'problems' || p === 'plus' || p === 'dsa' || ignoreKeywords.includes(p)) continue;
+    if (parts.length === 0) return '';
+
+    // Always ignore the last path segment as it is the problem slug itself
+    const topicParts = parts.slice(0, -1);
+
+    for (let i = topicParts.length - 1; i >= 0; i--) {
+      const p = topicParts[i].toLowerCase();
+      if (p === 'problems' || p === 'plus' || p === 'dsa' || p === 'sql' || p === 'aptitude' || ignoreKeywords.includes(p)) continue;
       
-      const formatted = parts[i]
+      const formatted = topicParts[i]
         .split('-')
         .map(w => w.charAt(0).toUpperCase() + w.slice(1))
         .join('-');

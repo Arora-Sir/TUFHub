@@ -116,11 +116,19 @@ function resolveCategoryAndTopic(p) {
   let topicName = '';
 
   if (parts.length >= 3) {
-    topicName = parts[1];
-  } else if (p.mainTopic && p.mainTopic !== catName && p.mainTopic.toLowerCase() !== slug.toLowerCase()) {
-    topicName = p.mainTopic.includes('/') ? p.mainTopic.split('/').pop() : p.mainTopic;
-  } else if (parts.length === 2 && !parts[1].match(/^\d{4}-/) && parts[1].toLowerCase() !== slug.toLowerCase()) {
-    topicName = parts[1];
+    const candidate = parts[1];
+    const cleanCand = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (cleanCand !== cleanSlug && !cleanSlug.includes(cleanCand) && !cleanCand.includes(cleanSlug)) {
+      topicName = candidate;
+    }
+  } else if (p.mainTopic && p.mainTopic !== catName) {
+    const candidate = p.mainTopic.includes('/') ? p.mainTopic.split('/').pop() : p.mainTopic;
+    const cleanCand = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (cleanCand !== cleanSlug && !cleanSlug.includes(cleanCand) && !cleanCand.includes(cleanSlug)) {
+      topicName = candidate;
+    }
   }
 
   if (!topicName || topicName === catName || topicName === 'General' || (slug && topicName.toLowerCase() === slug.toLowerCase())) {

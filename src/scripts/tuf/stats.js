@@ -158,11 +158,35 @@ export async function clearOfflineQueue() {
   await safeSetStorage({ tufhub_queue: [] });
 }
 
+export async function resetStats() {
+  const emptyStats = {
+    solved: 0,
+    easy: 0,
+    medium: 0,
+    hard: 0,
+    shas: {},
+    last_sync_time: {},
+    hierarchy: {},
+    problems: {}
+  };
+  await safeSetStorage({ stats: emptyStats });
+  return emptyStats;
+}
+
 export async function scanAndSyncRepoStats(token, hook) {
   if (!token || !hook) return null;
 
   try {
-    const stats = await getStats();
+    const stats = {
+      solved: 0,
+      easy: 0,
+      medium: 0,
+      hard: 0,
+      shas: {},
+      last_sync_time: {},
+      hierarchy: {},
+      problems: {}
+    };
 
     // 1. Fetch root README.md from repo
     const res = await fetch(`https://api.github.com/repos/${hook}/contents/README.md`, {
@@ -202,7 +226,7 @@ export async function scanAndSyncRepoStats(token, hook) {
               if (diffText.toLowerCase().includes('easy')) difficulty = 'Easy';
               else if (diffText.toLowerCase().includes('hard')) difficulty = 'Hard';
 
-              if (slug) {
+              if (slug && slug !== '-' && title !== 'No problems synced yet') {
                 stats.shas[slug] = stats.shas[slug] || { synced: true };
                 const parts = folderPath.split('/');
                 const mainCategory = parts[0] || 'DSA';

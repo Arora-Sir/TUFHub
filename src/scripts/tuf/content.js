@@ -102,6 +102,9 @@ async function executeGitHubSync(data) {
       return;
     }
 
+    // Auto-reconcile local stats with GitHub repo state so deleted repo items are purged
+    const stats = (await scanAndSyncRepoStats(token, hook)) || (await getStats());
+
     const ext = LANGUAGE_MAP[(data.language || '').toLowerCase()] || (routeInfo.category === 'SQL' ? 'sql' : 'cpp');
     const codeFileName = `solution.${ext}`;
 
@@ -112,7 +115,6 @@ async function executeGitHubSync(data) {
       url: data.url || window.location.href
     });
 
-    const stats = await getStats();
     const existingShas = stats.shas[slug] || {};
 
     console.log(`[TUFHub Sync Engine] 📦 File: ${folderPath}/${codeFileName}`);
