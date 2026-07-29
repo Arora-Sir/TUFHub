@@ -22,6 +22,10 @@ export async function uploadToGitHub(token, hook, path, content, commitMessage, 
       if (getRes.ok) {
         const getJson = await getRes.json();
         currentSha = getJson.sha;
+      } else if (getRes.status === 404) {
+        // File does not exist at this path yet (new path after topic re-routing).
+        // Clear any stale SHA so GitHub creates the file fresh instead of failing with 422.
+        currentSha = '';
       }
     } catch (e) {}
 
