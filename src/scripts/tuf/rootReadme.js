@@ -104,7 +104,7 @@ function generateRootReadmeMarkdown(stats) {
     });
   }
 
-  markdown += `\n---\n*Generated with ❤️ by [Mohit Arora](https://github.com/Arora-Sir) using [TUFHub](https://github.com/Arora-Sir/TUFHub) | Practice on [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir) | ⭐ [Star TUFHub](https://github.com/Arora-Sir/TUFHub)*\n`;
+  markdown += `\n---\n\n<p align="center">\n  Generated with ❤️ by <a href="https://github.com/Arora-Sir">Mohit Arora</a> using <a href="https://github.com/Arora-Sir/TUFHub">TUFHub</a> &nbsp;|&nbsp; Practice on <a href="https://takeuforward.org/plus?affiliate=arorasir">TakeUForward (TUF+)</a> &nbsp;|&nbsp; ⭐ <a href="https://github.com/Arora-Sir/TUFHub">Star TUFHub</a>\n</p>\n`;
 
   return markdown;
 }
