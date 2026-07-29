@@ -8,7 +8,7 @@ import { buildProblemReadme } from './readme.js';
 import { updateRootReadme } from './rootReadme.js';
 import { uploadToGitHub } from './uploader.js';
 import { resolveHierarchy } from './router.js';
-import { getStats, updateStats, isDebounced, safeGetStorage, enqueueOfflineSync, getOfflineQueue, clearOfflineQueue } from './stats.js';
+import { getStats, updateStats, scanAndSyncRepoStats, isDebounced, safeGetStorage, enqueueOfflineSync, getOfflineQueue, clearOfflineQueue } from './stats.js';
 import { showToast } from './toast.js';
 import { LANGUAGE_MAP, convertToSlug, addLeadingZeros } from '../util.js';
 
