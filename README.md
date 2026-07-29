@@ -30,21 +30,21 @@ No manual copying. No drag and drop. Just solve, submit, and your solution lands
 ## Screenshots & Showcase
 
 <p align="center">
-  <img src="src/assets/readme_screenshots/popup_dashboard.png?v=3" width="900" alt="TUFHub Extension Popup Dashboard" />
+  <img src="src/assets/readme_screenshots/popup_dashboard.png?v=4" width="900" alt="TUFHub Extension Popup Dashboard" />
 </p>
 
 ### 📁 Master Solutions Repository Index
 Auto-maintains a structured `README.md` at the root of your solutions repository with real-time stats and topic badges.
 
 <p align="center">
-  <img src="src/assets/readme_screenshots/master_index.png" width="900" alt="Master Solutions Index Table" />
+  <img src="src/assets/readme_screenshots/master_index.png?v=4" width="900" alt="Master Solutions Index Table" />
 </p>
 
 ### ⚡ Automated Solution Commits
 Commits code solutions with clean folder hierarchy, language extensions, and formatted problem statements.
 
 <p align="center">
-  <img src="src/assets/readme_screenshots/github_sync.png" width="900" alt="GitHub Synced Code Preview" />
+  <img src="src/assets/readme_screenshots/github_sync.png?v=4" width="900" alt="GitHub Synced Code Preview" />
 </p>
 
 ## Features
