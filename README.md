@@ -21,7 +21,7 @@
 
 ## 🚀 What is TUFHub?
 
-TUFHub is a Chrome Extension that automatically syncs your **accepted solutions** from [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir) to your GitHub repository in real time — the exact moment you pass 100% test cases.
+TUFHub is a Chrome Extension that automatically syncs your **accepted solutions** from [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir) to your GitHub repository in real time: the exact moment you pass 100% test cases.
 
 No manual copying. No drag & drop. Just solve, submit, and your solution lands on GitHub instantly.
 
@@ -51,13 +51,13 @@ Commits code solutions with clean folder hierarchy, language extensions, and for
 
 ## ✨ Features
 
-- **Auto-Sync on 100% Pass** — Only commits accepted solutions; ignores failing attempts.
-- **Multi-Category Organization** — Categorizes problems under DSA, SQL, Aptitude, and Mock Tests.
-- **Smart Folder Hierarchy** — Dynamically resolves subtopics and problem slugs.
-- **Problem Statement README** — Generates per-problem `README.md` with difficulty & complexity analysis.
-- **Master Repository Index** — Maintains a master `README.md` index table sorted by category & difficulty.
-- **Live Extension Popup** — Tracks Solved, Easy, Medium, Hard counts with a 1-click **↻ Sync** button.
-- **Conflict-Safe Commits** — Sequential queue prevents Git 409 commit conflicts.
+- **Auto-Sync on 100% Pass**: Only commits accepted solutions; ignores failing attempts.
+- **Multi-Category Organization**: Categorizes problems under DSA, SQL, Aptitude, and Mock Tests.
+- **Smart Folder Hierarchy**: Dynamically resolves subtopics and problem slugs.
+- **Problem Statement README**: Generates per-problem `README.md` with difficulty & complexity analysis.
+- **Master Repository Index**: Maintains a master `README.md` index table sorted by category & difficulty.
+- **Live Extension Popup**: Tracks Solved, Easy, Medium, Hard counts with a 1-click **↻ Sync** button.
+- **Conflict-Safe Commits**: Sequential queue prevents Git 409 commit conflicts.
 
 ---
 
@@ -115,9 +115,9 @@ Go to [TakeUForward TUF+](https://takeuforward.org/plus?affiliate=arorasir), sol
 
 ## 🔒 Privacy & Security
 
-- **Direct Local Communication** — Data is transmitted strictly between your browser and `api.github.com`.
-- **Local Credential Storage** — Tokens are stored securely in `chrome.storage.local` and never sent to third-party servers.
-- **Zero Telemetry** — No analytics, tracking, or external logging.
+- **Direct Local Communication**: Data is transmitted strictly between your browser and `api.github.com`.
+- **Local Credential Storage**: Tokens are stored securely in `chrome.storage.local` and never sent to third-party servers.
+- **Zero Telemetry**: No analytics, tracking, or external logging.
 
 ---
 
