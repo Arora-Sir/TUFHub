@@ -29,14 +29,22 @@ No manual copying. No drag and drop. Just solve, submit, and your solution lands
 
 ## Screenshots & Showcase
 
-| 🚀 Onboarding Setup | 📊 Extension Dashboard | 📁 Master Solutions Index |
-| :---: | :---: | :---: |
-| <img src="src/assets/store_screenshots/user_shot3_welcome_pat.png" width="380" alt="Onboarding Setup" /> | <img src="src/assets/store_screenshots/user_shot2_popup_full.png" width="380" alt="Extension Popup Dashboard" /> | <img src="src/assets/store_screenshots/user_shot1_progress_table.png" width="380" alt="Master Index README" /> |
+<p align="center">
+  <img src="src/assets/readme_screenshots/popup_dashboard.png" width="360" alt="TUFHub Extension Popup Dashboard" />
+</p>
+
+### 📁 Master Solutions Repository Index
+Auto-maintains a structured `README.md` at the root of your solutions repository with real-time stats and topic badges.
 
 <p align="center">
-  <img src="src/assets/store_screenshots/user_shot5_github_code.png" width="800" alt="Synced GitHub Solution File" />
-  <br>
-  <sub><i>Automated solution file commit & markdown problem statement generation in GitHub.</i></sub>
+  <img src="src/assets/readme_screenshots/master_index.png" width="900" alt="Master Solutions Index Table" />
+</p>
+
+### ⚡ Automated Solution Commits
+Commits code solutions with clean folder hierarchy, language extensions, and formatted problem statements.
+
+<p align="center">
+  <img src="src/assets/readme_screenshots/github_sync.png" width="900" alt="GitHub Synced Code Preview" />
 </p>
 
 ## Features
