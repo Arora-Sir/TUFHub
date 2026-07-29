@@ -111,27 +111,37 @@ function generateRootReadmeMarkdown(stats) {
 function resolveCategoryAndTopic(p) {
   const parts = (p.folderPath || '').split('/').filter(Boolean);
   const catName = parts[0] || 'DSA';
+  const slug = parts[parts.length - 1] || '';
   
   let topicName = '';
 
   if (parts.length >= 3) {
     topicName = parts[1];
-  } else if (p.mainTopic && p.mainTopic !== catName) {
+  } else if (p.mainTopic && p.mainTopic !== catName && p.mainTopic.toLowerCase() !== slug.toLowerCase()) {
     topicName = p.mainTopic.includes('/') ? p.mainTopic.split('/').pop() : p.mainTopic;
-  } else if (parts.length === 2 && !parts[1].match(/^\d{4}-/)) {
+  } else if (parts.length === 2 && !parts[1].match(/^\d{4}-/) && parts[1].toLowerCase() !== slug.toLowerCase()) {
     topicName = parts[1];
   }
 
-  if (!topicName || topicName === catName || topicName === 'General') {
-    const titleLower = ((p.title || '') + ' ' + (p.folderPath || '')).toLowerCase();
+  if (!topicName || topicName === catName || topicName === 'General' || (slug && topicName.toLowerCase() === slug.toLowerCase())) {
+    const titleLower = ((p.title || '') + ' ' + (p.folderPath || '') + ' ' + (p.mainTopic || '')).toLowerCase();
     if (titleLower.includes('linked') || titleLower.includes('ll')) topicName = 'Linked-List';
-    else if (titleLower.includes('recursion') || titleLower.includes('combination') || titleLower.includes('subset')) topicName = 'Recursion';
+    else if (
+      titleLower.includes('recursion') || titleLower.includes('combination') ||
+      titleLower.includes('subset') || titleLower.includes('permutation') ||
+      titleLower.includes('parenthes') || titleLower.includes('phone')
+    ) topicName = 'Recursion';
+    else if (titleLower.includes('backtrack') || titleLower.includes('n-queen') || titleLower.includes('sudoku')) topicName = 'Backtracking';
     else if (titleLower.includes('search') || titleLower.includes('binary')) topicName = 'Binary-Search';
     else if (titleLower.includes('tree') || titleLower.includes('bst')) topicName = 'Trees';
     else if (titleLower.includes('graph') || titleLower.includes('bfs') || titleLower.includes('dfs')) topicName = 'Graphs';
-    else if (titleLower.includes('dp') || titleLower.includes('dynamic')) topicName = 'Dynamic-Programming';
+    else if (titleLower.includes('dp') || titleLower.includes('dynamic') || titleLower.includes('knapsack')) topicName = 'Dynamic-Programming';
     else if (titleLower.includes('string') || titleLower.includes('anagram')) topicName = 'Strings';
     else if (titleLower.includes('stack') || titleLower.includes('queue')) topicName = 'Stack-Queue';
+    else if (titleLower.includes('bit') || titleLower.includes('xor')) topicName = 'Bit-Manipulation';
+    else if (titleLower.includes('greedy')) topicName = 'Greedy';
+    else if (titleLower.includes('heap')) topicName = 'Heaps';
+    else if (titleLower.includes('window')) topicName = 'Sliding-Window';
     else if (titleLower.includes('array') || titleLower.includes('matrix')) topicName = 'Arrays';
     else if (titleLower.includes('join') || titleLower.includes('select')) topicName = 'Joins';
     else topicName = 'General';
