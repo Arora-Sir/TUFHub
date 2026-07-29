@@ -102,9 +102,9 @@ function convertTufHtmlToMarkdown(html) {
         const exBox = vstack.querySelector('.tuf-example');
         if (exBox) {
           const exHtml = exBox.innerHTML
-            .replace(/<strong>Input\s*:?<\/strong>\s*:?/gi, '\n**Input:** ')
-            .replace(/<strong>Output\s*:?<\/strong>\s*:?/gi, '\n**Output:** ')
-            .replace(/<strong>Explanation\s*:?<\/strong>\s*:?/gi, '\n**Explanation:** ');
+            .replace(/<strong>Input\s*:?<\/strong>\s*:?/gi, '\n\n**Input:** ')
+            .replace(/<strong>Output\s*:?<\/strong>\s*:?/gi, '\n\n**Output:** ')
+            .replace(/<strong>Explanation\s*:?<\/strong>\s*:?/gi, '\n\n**Explanation:** ');
           
           vstack.innerHTML = `<h3>${headerText}</h3><div>${exHtml}</div>`;
         }
@@ -141,8 +141,9 @@ function convertTufHtmlToMarkdown(html) {
       .replace(/&amp;/g, '&')
       .replace(/&quot;/g, '"');
 
-    // Clean up spaces & bold artifacts (**word ** -> **word**)
+    // Ensure double newlines before Input/Output/Explanation so Markdown renders bold
     markdown = markdown
+      .replace(/(\n|^)\s*\*\*(Input|Output|Explanation):\*\*/gi, '\n\n**$2:**')
       .replace(/[ \t]+/g, ' ')
       .replace(/ \n/g, '\n')
       .replace(/\n /g, '\n')
