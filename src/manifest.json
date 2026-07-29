@@ -1,6 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "TUFHub",
+  "name": "TUFHub - TakeUForward GitHub Sync",
+  "short_name": "TUFHub",
   "version": "1.0.0",
   "description": "Automatically sync your TakeUForward (TUF+) accepted solutions to GitHub.",
   "permissions": [
