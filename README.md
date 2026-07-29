@@ -117,11 +117,11 @@ Choose one of two authentication methods:
 
 #### GitHub OAuth App
 
-1. Click **"Click here to register a new OAuth App on GitHub"** (pre-fills Application Name and Callback URL automatically)
-2. Set Homepage URL to `https://github.com/` (use the **Copy Homepage URL** button)
-3. The Authorization Callback URL is already pre-filled with your extension's redirect URI - copy it using the **Copy Callback URL** button and paste it if not auto-filled
-4. Submit the form on GitHub to get your **Client ID** and **Client Secret**
-5. Enter both in TUFHub and click **Launch GitHub OAuth Flow**
+> **Note:** PAT (Personal Access Token) is the recommended method for most users. OAuth is for advanced users who prefer OAuth-scoped access and are comfortable managing their own GitHub OAuth App credentials.
+
+1. Click **Register OAuth App on GitHub** (pre-fills Application Name, Homepage URL, and Callback URL automatically)
+2. Submit the form on GitHub to generate your **Client ID** and **Client Secret**
+3. Enter both in TUFHub and click **Launch GitHub OAuth Flow**
 
 ### Step 2: Create Solutions Repository
 

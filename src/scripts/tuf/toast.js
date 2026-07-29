@@ -49,24 +49,34 @@ export function showToast(message, type = 'info', reasonCode = '', actionCallbac
 
   toast.style.borderColor = borderColor;
 
-  let contentHtml = `<span>${icon}</span> <span>${message}</span>`;
+  // Clear previous toast contents safely without innerHTML
+  toast.replaceChildren();
+
+  const iconSpan = document.createElement('span');
+  iconSpan.textContent = icon;
+  toast.appendChild(iconSpan);
+
+  const messageSpan = document.createElement('span');
+  messageSpan.textContent = message;
+  toast.appendChild(messageSpan);
+
   if (reasonCode) {
-    contentHtml += ` <span style="font-size: 11px; opacity: 0.7; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px;">${reasonCode}</span>`;
-  }
-  if (actionCallback) {
-    contentHtml += ` <a href="#" id="tufhub-toast-action" style="color: #f97316; font-weight: 600; text-decoration: underline; margin-left: 6px;">[Fix it]</a>`;
+    const codeSpan = document.createElement('span');
+    codeSpan.style.cssText = 'font-size: 11px; opacity: 0.7; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px;';
+    codeSpan.textContent = reasonCode;
+    toast.appendChild(codeSpan);
   }
 
-  toast.innerHTML = contentHtml;
-
   if (actionCallback) {
-    const actionBtn = document.getElementById('tufhub-toast-action');
-    if (actionBtn) {
-      actionBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        actionCallback();
-      });
-    }
+    const actionBtn = document.createElement('a');
+    actionBtn.href = '#';
+    actionBtn.style.cssText = 'color: #f97316; font-weight: 600; text-decoration: underline; margin-left: 6px;';
+    actionBtn.textContent = '[Fix it]';
+    actionBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      actionCallback();
+    });
+    toast.appendChild(actionBtn);
   }
 
   // Animate In

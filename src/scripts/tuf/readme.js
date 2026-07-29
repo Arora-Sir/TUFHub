@@ -75,8 +75,8 @@ function convertTufHtmlToMarkdown(html) {
 
     // Convert Examples
     body.querySelectorAll('.tuf-vstack').forEach(vstack => {
-      const headerElem = vstack.querySelector('.tuf-text-14');
-      const headerText = headerElem ? headerElem.innerText.trim() : '';
+      const rawHeader = headerElem ? headerElem.innerText.trim() : '';
+      const headerText = rawHeader.replace(/<[^>]*>/g, '');
 
       if (/Example\s*\d+/i.test(headerText)) {
         const exBox = vstack.querySelector('.tuf-example');
