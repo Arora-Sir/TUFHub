@@ -74,6 +74,22 @@ function convertTufHtmlToMarkdown(html) {
       }
     });
 
+    // 1. Move leading/trailing spaces inside strong/b/em/i tags outside the tag
+    doc.querySelectorAll('strong, b, em, i').forEach(el => {
+      const text = el.textContent || '';
+      if (text.length > 0) {
+        const hasTrailing = /\s$/.test(text);
+        const hasLeading = /^\s/.test(text);
+        el.textContent = text.trim();
+        if (hasTrailing) {
+          el.insertAdjacentText('afterend', ' ');
+        }
+        if (hasLeading) {
+          el.insertAdjacentText('beforebegin', ' ');
+        }
+      }
+    });
+
     let body = doc.body;
 
     // Convert Examples
@@ -106,11 +122,11 @@ function convertTufHtmlToMarkdown(html) {
       .replace(/<h3>(.*?)<\/h3>/gi, '\n\n### $1\n\n')
       .replace(/<sup>(.*?)<\/sup>/gi, '^$1')
       .replace(/<sub>(.*?)<\/sub>/gi, '_$1')
-      .replace(/<strong>\s*(.*?)\s*<\/strong>/gi, '**$1**')
-      .replace(/<b>\s*(.*?)\s*<\/b>/gi, '**$1**')
-      .replace(/<em>\s*(.*?)\s*<\/em>/gi, '*$1*')
-      .replace(/<i>\s*(.*?)\s*<\/i>/gi, '*$1*')
-      .replace(/<code>(.*?)<\/code>/gi, '`$1`')
+      .replace(/<strong>(.*?)<\/strong>/gi, ' **$1** ')
+      .replace(/<b>(.*?)<\/b>/gi, ' **$1** ')
+      .replace(/<em>(.*?)<\/em>/gi, ' *$1* ')
+      .replace(/<i>(.*?)<\/i>/gi, ' *$1* ')
+      .replace(/<code>(.*?)<\/code>/gi, ' `$1` ')
       .replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n')
       .replace(/<\/?ul[^>]*>/gi, '\n')
       .replace(/<\/?ol[^>]*>/gi, '\n')
@@ -125,11 +141,12 @@ function convertTufHtmlToMarkdown(html) {
       .replace(/&amp;/g, '&')
       .replace(/&quot;/g, '"');
 
-    // Clean up bold spacing artifacts (**word ** -> **word**)
+    // Clean up spaces & bold artifacts (**word ** -> **word**)
     markdown = markdown
-      .replace(/\*\*\s+(.*?)\s*\*\*/g, ' **$1**')
-      .replace(/\*\*\s*(.*?)\s+\*\*/g, '**$1** ')
-      .replace(/\*\*\s*:\s*\*\*/g, ':**')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/ \n/g, '\n')
+      .replace(/\n /g, '\n')
+      .replace(/\*\*\s+:\s*\*\*/g, ':**')
       .replace(/\*\*(Input|Output|Explanation):\*\*\s*:/gi, '**$1:**');
 
     // Fix constraints exponent formatting (105 -> 10^5, -104 -> -10^4)
