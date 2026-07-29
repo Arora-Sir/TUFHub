@@ -233,12 +233,37 @@ export async function scanAndSyncRepoStats(token, hook) {
                 const mainTopic = parts.length > 2 ? parts[1] : (parts[1] && parts[1] !== slug ? parts[1] : 'General');
                 const subTopic = parts.length > 3 ? parts[2] : 'General';
 
+                const solCol = cols[2] || '';
+                const solMatches = [...solCol.matchAll(/\[(.*?)\]\((.*?)\)/g)];
+                const languages = {};
+                let primaryCodeFileName = '';
+
+                solMatches.forEach(m => {
+                  const label = m[1].toLowerCase();
+                  const link = m[2];
+                  const fileName = link ? link.split('/').pop() : '';
+                  if (fileName && fileName !== 'undefined') {
+                    languages[label] = fileName;
+                    if (!primaryCodeFileName) primaryCodeFileName = fileName;
+                  }
+                });
+
+                if (!primaryCodeFileName) {
+                  primaryCodeFileName = 'solution.java';
+                }
+                const ext = primaryCodeFileName.split('.').pop() || 'java';
+                if (Object.keys(languages).length === 0) {
+                  languages[ext] = primaryCodeFileName;
+                }
+
                 stats.problems[slug] = {
                   title,
                   difficulty,
                   mainTopic,
                   subTopic,
                   folderPath,
+                  codeFileName: primaryCodeFileName,
+                  languages,
                   updatedAt: Date.now()
                 };
               }

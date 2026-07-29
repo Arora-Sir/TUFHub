@@ -84,7 +84,7 @@ function generateRootReadmeMarkdown(stats) {
 
       let solutionLinks = '';
       const languages = p.languages || {};
-      const langExts = Object.keys(languages);
+      const langExts = Object.keys(languages).filter(k => languages[k] && languages[k] !== 'undefined');
 
       if (langExts.length > 0) {
         solutionLinks = langExts.map(ext => {
@@ -93,8 +93,9 @@ function generateRootReadmeMarkdown(stats) {
           return `[${ext.toUpperCase()}](${fileUrl})`;
         }).join(' ');
       } else {
-        const ext = p.codeFileName ? p.codeFileName.split('.').pop() : 'code';
-        const fileUrl = `${folderUrl}/${encodeURIComponent(p.codeFileName)}`;
+        const safeFile = (p.codeFileName && p.codeFileName !== 'undefined') ? p.codeFileName : 'solution.java';
+        const ext = safeFile.split('.').pop() || 'java';
+        const fileUrl = `${folderUrl}/${encodeURIComponent(safeFile)}`;
         solutionLinks = `[${ext.toUpperCase()}](${fileUrl})`;
       }
 
