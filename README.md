@@ -17,6 +17,8 @@
   <img src="https://img.shields.io/badge/version-1.0.0-orange.svg" alt="Version 1.0.0" />
 </p>
 
+> 📘 **Interactive Development Blueprint**: Explore the complete 12-hour architectural blueprint, manifest specs, asset design pipeline, and bug resolution log at [Chrome Extension Blueprint](https://arora-sir.github.io/Chrome_Extension_Blueprint.html).
+
 ---
 
 ## 🚀 What is TUFHub?
@@ -172,6 +174,14 @@ Yes. Enter the name of your existing repo during setup; TUFHub will connect to i
 **Q: Is this extension affiliated with TakeUForward?**  
 No. This is an independent open-source tool and is not officially affiliated with TakeUForward.
 </details>
+
+---
+
+## 📘 Architecture & Development Blueprint
+
+For an exhaustive 12-hour session transcript breakdown, Manifest V3 background service worker architecture, visual asset pipeline, and technical bug fix ledger, visit the interactive blueprint:
+
+👉 **[View Full Chrome Extension Development Blueprint](https://arora-sir.github.io/Chrome_Extension_Blueprint.html)**
 
 ---
 
