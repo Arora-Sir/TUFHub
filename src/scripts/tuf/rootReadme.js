@@ -98,17 +98,7 @@ function generateRootReadmeMarkdown(stats) {
         solutionLinks = `[${ext.toUpperCase()}](${fileUrl})`;
       }
 
-      const parts = (p.folderPath || '').split('/');
-      const catName = parts[0] || 'DSA';
-      let topicName = p.mainTopic || parts[1] || 'General';
-      if (topicName.startsWith(catName + '/')) {
-        topicName = topicName.replace(catName + '/', '');
-      }
-
-      const categoryCell = topicName && topicName !== catName && topicName !== 'General'
-        ? `\`${catName}\` / \`${topicName}\``
-        : `\`${catName}\``;
-
+      const categoryCell = resolveCategoryAndTopic(p);
       markdown += `| ${numStr} | [${p.title}](${folderUrl}) | ${solutionLinks} | ${diffBadge} | ${categoryCell} |\n`;
     });
   }
@@ -116,4 +106,38 @@ function generateRootReadmeMarkdown(stats) {
   markdown += `\n---\n*Generated with ❤️ by [Mohit Arora](https://github.com/Arora-Sir) using [TUFHub](https://github.com/Arora-Sir/TUFHub)*\n`;
 
   return markdown;
+}
+
+function resolveCategoryAndTopic(p) {
+  const parts = (p.folderPath || '').split('/').filter(Boolean);
+  const catName = parts[0] || 'DSA';
+  
+  let topicName = '';
+
+  if (parts.length >= 3) {
+    topicName = parts[1];
+  } else if (p.mainTopic && p.mainTopic !== catName) {
+    topicName = p.mainTopic.includes('/') ? p.mainTopic.split('/').pop() : p.mainTopic;
+  } else if (parts.length === 2 && !parts[1].match(/^\d{4}-/)) {
+    topicName = parts[1];
+  }
+
+  if (!topicName || topicName === catName || topicName === 'General') {
+    const titleLower = ((p.title || '') + ' ' + (p.folderPath || '')).toLowerCase();
+    if (titleLower.includes('linked') || titleLower.includes('ll')) topicName = 'Linked-List';
+    else if (titleLower.includes('recursion') || titleLower.includes('combination') || titleLower.includes('subset')) topicName = 'Recursion';
+    else if (titleLower.includes('search') || titleLower.includes('binary')) topicName = 'Binary-Search';
+    else if (titleLower.includes('tree') || titleLower.includes('bst')) topicName = 'Trees';
+    else if (titleLower.includes('graph') || titleLower.includes('bfs') || titleLower.includes('dfs')) topicName = 'Graphs';
+    else if (titleLower.includes('dp') || titleLower.includes('dynamic')) topicName = 'Dynamic-Programming';
+    else if (titleLower.includes('string') || titleLower.includes('anagram')) topicName = 'Strings';
+    else if (titleLower.includes('stack') || titleLower.includes('queue')) topicName = 'Stack-Queue';
+    else if (titleLower.includes('array') || titleLower.includes('matrix')) topicName = 'Arrays';
+    else if (titleLower.includes('join') || titleLower.includes('select')) topicName = 'Joins';
+    else topicName = 'General';
+  }
+
+  return topicName && topicName !== catName && topicName !== 'General'
+    ? `\`${catName}\` / \`${topicName}\``
+    : `\`${catName}\``;
 }
