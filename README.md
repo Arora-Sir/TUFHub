@@ -1,5 +1,9 @@
+<p align="center">
+  <img src="src/assets/icons/icon128.png" width="96" height="96" alt="TUFHub Logo" />
+</p>
+
 <h1 align="center">
-  🔗 TUFHub
+  TUFHub
   <br>
   <sub>Automatically sync your TakeUForward (TUF+) solutions to GitHub.</sub>
 </h1>
