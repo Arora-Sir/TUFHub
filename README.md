@@ -9,12 +9,20 @@
 </h1>
 
 <p align="center">
+  <a href="https://chromewebstore.google.com/detail/tufhub-takeuforward-githu/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-Available_Now-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Available in Chrome Web Store" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://chromewebstore.google.com/detail/tufhub-takeuforward-githu/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.0.0-blue.svg?logo=googlechrome" alt="Chrome Web Store" />
+  </a>
   <a href="https://github.com/Arora-Sir/TUFHub/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
   </a>
   <img src="https://img.shields.io/badge/manifest-v3-green.svg" alt="Manifest V3" />
   <img src="https://img.shields.io/badge/platform-Chrome-yellow.svg" alt="Chrome Extension" />
-  <img src="https://img.shields.io/badge/version-1.0.0-orange.svg" alt="Version 1.0.0" />
 </p>
 
 > 📘 **Interactive Development Blueprint**: Explore the complete 12-hour architectural blueprint, manifest specs, asset design pipeline, and bug resolution log at [Chrome Extension Blueprint](https://arora-sir.github.io/Chrome_Extension_Blueprint.html).
@@ -26,6 +34,28 @@
 TUFHub is a Chrome Extension that automatically syncs your **accepted solutions** from [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir) to your GitHub repository in real time: the exact moment you pass 100% test cases.
 
 No manual copying. No drag & drop. Just solve, submit, and your solution lands on GitHub instantly.
+
+---
+
+## 📥 Direct 1-Click Installation
+
+### Option 1: Official Chrome Web Store (Recommended)
+Click below to install TUFHub directly into Google Chrome with automatic background updates:
+
+<p align="left">
+  <a href="https://chromewebstore.google.com/detail/tufhub-takeuforward-githu/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
+    <img src="https://img.shields.io/badge/Add_to_Chrome-Install_TUFHub-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Add to Chrome - Install TUFHub" />
+  </a>
+</p>
+
+### Option 2: Manual Developer Mode (Unpacked Build)
+1. Clone or download this repository:
+   ```bash
+   git clone https://github.com/Arora-Sir/TUFHub.git
+   cd TUFHub && npm install && npm run build
+   ```
+2. Open Chrome → navigate to `chrome://extensions` → enable **Developer mode**.
+3. Click **Load unpacked** and select the generated `dist/` directory.
 
 ---
 
@@ -92,16 +122,7 @@ TUF-Solutions/
 
 ## ⚡ Quick Setup Guide
 
-### 1. Installation
-1. Clone or download this repository:
-   ```bash
-   git clone https://github.com/Arora-Sir/TUFHub.git
-   cd TUFHub && npm install && npm run build
-   ```
-2. Open Chrome → go to `chrome://extensions` → enable **Developer mode**.
-3. Click **Load unpacked** and select the `dist/` directory.
-
-### 2. Connection
+### 1. Connection
 - **Personal Access Token (Recommended)**: Click the pre-configured link in the onboarding wizard to generate a PAT with `repo` scope, paste it, and save.
 
 <details>
@@ -111,7 +132,7 @@ TUF-Solutions/
 2. Generate Client ID & Client Secret, paste them into TUFHub, and click **Launch GitHub OAuth Flow**.
 </details>
 
-### 3. Start Syncing!
+### 2. Start Syncing!
 Go to [TakeUForward TUF+](https://takeuforward.org/plus?affiliate=arorasir), solve any problem, and hit **Submit**. Your solution will land on GitHub automatically!
 
 ---
@@ -190,6 +211,7 @@ For an exhaustive 12-hour session transcript breakdown, Manifest V3 background s
 If TUFHub helps you stay consistent on your coding journey, please consider supporting the project:
 
 - 🎓 **Enroll in TUF+**: Get the official course via [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir)
+- 🛒 **Chrome Web Store**: Rate and review [TUFHub on Chrome Web Store](https://chromewebstore.google.com/detail/tufhub-takeuforward-githu/fbbjinonammckffpfmhicgdcfgodfnge)
 - ⭐ **Star this repository**: Give [TUFHub a star on GitHub](https://github.com/Arora-Sir/TUFHub)
 - ☕ **Donate**: Support via [PayPal](https://paypal.me/arorasir) or UPI (`mohit1998arora@yescred`)
 
