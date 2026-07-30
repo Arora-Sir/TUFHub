@@ -29,9 +29,7 @@
 
 ## 🚀 What is TUFHub?
 
-TUFHub is a Chrome Extension that automatically syncs your **accepted solutions** from [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir) to your GitHub repository in real time: the exact moment you pass 100% test cases.
-
-No manual copying. No drag & drop. Just solve, submit, and your solution lands on GitHub instantly.
+TUFHub is a Chrome Extension that automatically syncs your **accepted solutions** from [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir) to your GitHub repository in real time. Inspired by [LeetHub](https://github.com/QasimWani/LeetHub), it brings zero-friction automated GitHub sync specifically to TakeUForward: solve, submit, and your solution lands on GitHub instantly.
 
 ---
 
@@ -193,6 +191,17 @@ Yes. Enter the name of your existing repo during setup; TUFHub will connect to i
 **Q: Is this extension affiliated with TakeUForward?**  
 No. This is an independent open-source tool and is not officially affiliated with TakeUForward.
 </details>
+
+---
+
+## 🙏 Acknowledgements & Inspiration
+
+TUFHub is inspired by open-source submission sync extensions:
+
+- **[LeetHub](https://github.com/QasimWani/LeetHub)** ([QasimWani](https://github.com/QasimWani)) - Original LeetCode sync tool.
+- **[LeetHub 2.0](https://github.com/arunbhardwaj/LeetHub-2.0)** ([arunbhardwaj](https://github.com/arunbhardwaj)) - Manifest V3 architecture reference.
+
+TUFHub adapts these concepts for TakeUForward (TUF+) with multi-category support, network interception, and automated README indexing.
 
 ---
 
