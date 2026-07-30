@@ -1,9 +1,63 @@
+# Dependencies
 node_modules/
+.pnpm-store/
+
+# Build & Extension Release Artifacts
 dist/
-graphify-out/
-.DS_Store
-*.log
+build/
+*.zip
+*.crx
+*.pem
+
+# Environment Variables & Credentials
 .env
 .env.local
-*.zip
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
+
+# Personal Plans, Internal Research & Working Files
+TempData/
+graphify-out/
+scratch/
+
+# Logs & Debugging Output
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor & IDE Settings
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+
+# OS & System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Testing & Code Coverage
+coverage/
+.nyc_output/
+
+# Tooling Caches
+.cache/
+.eslintcache
+.parcel-cache/
+.webpack/
+
+
 
