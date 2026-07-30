@@ -9,13 +9,13 @@
 </h1>
 
 <p align="center">
-  <a href="https://chromewebstore.google.com/detail/tufhub-takeuforward-githu/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
+  <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
     <img src="https://img.shields.io/badge/Chrome_Web_Store-Available_Now-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Available in Chrome Web Store" />
   </a>
 </p>
 
 <p align="center">
-  <a href="https://chromewebstore.google.com/detail/tufhub-takeuforward-githu/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
+  <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
     <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.0.0-blue.svg?logo=googlechrome" alt="Chrome Web Store" />
   </a>
   <a href="https://github.com/Arora-Sir/TUFHub/blob/main/LICENSE">
@@ -41,7 +41,7 @@ No manual copying. No drag & drop. Just solve, submit, and your solution lands o
 Click below to install TUFHub directly into Google Chrome with automatic background updates:
 
 <p align="left">
-  <a href="https://chromewebstore.google.com/detail/tufhub-takeuforward-githu/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
+  <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
     <img src="https://img.shields.io/badge/Add_to_Chrome-Install_TUFHub-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Add to Chrome - Install TUFHub" />
   </a>
 </p>
@@ -201,7 +201,7 @@ No. This is an independent open-source tool and is not officially affiliated wit
 If TUFHub helps you stay consistent on your coding journey, please consider supporting the project:
 
 - 🎓 **Enroll in TUF+**: Get the official course via [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir)
-- 🛒 **Chrome Web Store**: Rate and review [TUFHub on Chrome Web Store](https://chromewebstore.google.com/detail/tufhub-takeuforward-githu/fbbjinonammckffpfmhicgdcfgodfnge)
+- 🛒 **Chrome Web Store**: Rate and review [TUFHub on Chrome Web Store](https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge)
 - ⭐ **Star this repository**: Give [TUFHub a star on GitHub](https://github.com/Arora-Sir/TUFHub)
 - ☕ **Donate**: Support via [PayPal](https://paypal.me/arorasir) or UPI (`mohit1998arora@yescred`)
 
