@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "TUFHub - TakeUForward GitHub Sync",
+  "name": "TUFHub - TakeUForward (TUF) GitHub Sync",
   "short_name": "TUFHub",
   "version": "1.0.1",
   "version_name": "1.0.0 - Initial Release",
