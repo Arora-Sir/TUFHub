@@ -42,7 +42,7 @@ module.exports = {
           from: 'src/assets',
           to: 'assets',
           globOptions: {
-            ignore: ['**/store_screenshots/**', '**/readme_screenshots/**', '**/temp_screenshots/**', '**/icon256.png', '**/icon512.png'],
+            ignore: ['**/store_screenshots/**', '**/readme_screenshots/**', '**/temp_screenshots/**'],
           },
           noErrorOnMissing: true
         },
