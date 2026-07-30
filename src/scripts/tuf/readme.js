@@ -7,7 +7,7 @@
 export function buildProblemReadme(data) {
   const { title, difficulty, description, url } = data;
   const diffStr = difficulty || 'Medium';
-  const problemUrl = url || 'https://takeuforward.org/plus?affiliate=arorasir';
+  const problemUrl = url || 'https://takeuforward.org/plus';
 
   const cleanDesc = convertTufHtmlToMarkdown(description);
   const badgeColor = diffStr.toLowerCase().includes('easy')
