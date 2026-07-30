@@ -38,7 +38,14 @@ module.exports = {
         { from: 'src/popup.html', to: 'popup.html' },
         { from: 'src/welcome.html', to: 'welcome.html' },
         { from: 'src/css', to: 'css' },
-        { from: 'src/assets', to: 'assets', noErrorOnMissing: true },
+        {
+          from: 'src/assets',
+          to: 'assets',
+          globOptions: {
+            ignore: ['**/store_screenshots/**', '**/readme_screenshots/**', '**/temp_screenshots/**'],
+          },
+          noErrorOnMissing: true
+        },
       ],
     }),
   ],
