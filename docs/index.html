@@ -26,9 +26,9 @@
     :root {
       --bg: #060913;
       --bg-alt: #0a0f1d;
-      --card-bg: rgba(15, 23, 42, 0.7);
+      --card-bg: rgba(15, 23, 42, 0.75);
       --card-border: rgba(255, 255, 255, 0.08);
-      --card-hover-border: rgba(56, 189, 248, 0.35);
+      --card-hover-border: rgba(56, 189, 248, 0.4);
       --text: #f8fafc;
       --text-muted: #94a3b8;
       --primary: #38bdf8;
@@ -36,9 +36,8 @@
       --accent: #818cf8;
       --success: #34d399;
       --gradient: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
-      --gradient-border: linear-gradient(135deg, rgba(56, 189, 248, 0.4), rgba(129, 140, 248, 0.1));
       --radius: 16px;
-      --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      --transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     * {
@@ -57,12 +56,44 @@
       color: var(--text);
       line-height: 1.6;
       overflow-x: hidden;
-      background-image: 
-        radial-gradient(circle at 10% 10%, rgba(56, 189, 248, 0.07) 0%, transparent 40%),
-        radial-gradient(circle at 90% 60%, rgba(129, 140, 248, 0.07) 0%, transparent 40%);
+      position: relative;
     }
 
-    /* Grid overlay background */
+    /* Animated Floating Background Orbs */
+    .bg-orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(100px);
+      pointer-events: none;
+      z-index: -2;
+      opacity: 0.18;
+      animation: floatOrb 20s ease-in-out infinite alternate;
+    }
+
+    .bg-orb-1 {
+      top: -10%;
+      left: -10%;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, #38bdf8, #818cf8);
+    }
+
+    .bg-orb-2 {
+      bottom: 10%;
+      right: -10%;
+      width: 700px;
+      height: 700px;
+      background: radial-gradient(circle, #c084fc, #38bdf8);
+      animation-delay: -10s;
+    }
+
+    @keyframes floatOrb {
+      0% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(60px, 40px) scale(1.1); }
+      100% { transform: translate(-40px, 80px) scale(0.95); }
+    }
+
+    /* Grid Overlay */
     body::before {
       content: '';
       position: fixed;
@@ -89,16 +120,23 @@
       padding: 0 24px;
     }
 
-    /* Header & Navigation */
+    /* Header & Navbar Scroll Effect */
     header {
       position: sticky;
       top: 0;
       z-index: 100;
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      background: rgba(6, 9, 19, 0.85);
+      background: rgba(6, 9, 19, 0.75);
       border-bottom: 1px solid var(--card-border);
-      padding: 16px 0;
+      padding: 18px 0;
+      transition: padding 0.3s ease, background 0.3s ease;
+    }
+
+    header.scrolled {
+      padding: 12px 0;
+      background: rgba(6, 9, 19, 0.92);
+      border-bottom-color: rgba(56, 189, 248, 0.2);
     }
 
     .nav-wrapper {
@@ -121,6 +159,11 @@
       height: 36px;
       border-radius: 8px;
       box-shadow: 0 0 12px var(--primary-glow);
+      transition: transform 0.3s ease;
+    }
+
+    .brand:hover img {
+      transform: rotate(8deg) scale(1.05);
     }
 
     .nav-links {
@@ -140,8 +183,9 @@
       color: #fff;
     }
 
-    /* Buttons */
+    /* Buttons with Shimmer Hover Animation */
     .btn {
+      position: relative;
       display: inline-flex;
       align-items: center;
       gap: 10px;
@@ -152,6 +196,7 @@
       cursor: pointer;
       transition: var(--transition);
       border: 1px solid transparent;
+      overflow: hidden;
     }
 
     .btn:hover {
@@ -165,8 +210,24 @@
       box-shadow: 0 4px 20px var(--primary-glow);
     }
 
+    .btn-primary::after {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -60%;
+      width: 40%;
+      height: 200%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+      transform: rotate(25deg);
+      transition: all 0.6s ease;
+    }
+
+    .btn-primary:hover::after {
+      left: 130%;
+    }
+
     .btn-primary:hover {
-      box-shadow: 0 6px 28px rgba(56, 189, 248, 0.45);
+      box-shadow: 0 6px 30px rgba(56, 189, 248, 0.45);
       color: #040814;
     }
 
@@ -181,7 +242,7 @@
       border-color: rgba(255, 255, 255, 0.2);
     }
 
-    /* Hero Section */
+    /* Hero Section Entry Animations */
     .hero {
       padding: 90px 0 60px;
       text-align: center;
@@ -199,6 +260,7 @@
       font-weight: 500;
       color: var(--primary);
       margin-bottom: 28px;
+      animation: fadeInDown 0.8s ease-out;
     }
 
     .badge-dot {
@@ -207,6 +269,13 @@
       background: var(--success);
       border-radius: 50%;
       box-shadow: 0 0 8px var(--success);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
     }
 
     h1 {
@@ -215,12 +284,21 @@
       line-height: 1.15;
       letter-spacing: -0.02em;
       margin-bottom: 24px;
+      animation: fadeInUp 0.9s ease-out 0.15s both;
     }
 
     .gradient-text {
       background: var(--gradient);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
+      background-size: 200% 200%;
+      animation: gradientShift 6s ease infinite;
+    }
+
+    @keyframes gradientShift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
     }
 
     .hero p {
@@ -228,6 +306,7 @@
       color: var(--text-muted);
       max-width: 740px;
       margin: 0 auto 40px;
+      animation: fadeInUp 0.9s ease-out 0.3s both;
     }
 
     .hero-actions {
@@ -237,9 +316,10 @@
       gap: 16px;
       flex-wrap: wrap;
       margin-bottom: 64px;
+      animation: fadeInUp 0.9s ease-out 0.45s both;
     }
 
-    /* Hero Showcase Frame */
+    /* Hero Preview Floating Animation */
     .hero-preview {
       position: relative;
       border-radius: var(--radius);
@@ -249,6 +329,12 @@
       box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.6), 0 0 50px rgba(56, 189, 248, 0.12);
       max-width: 960px;
       margin: 0 auto;
+      animation: fadeInUp 1s ease-out 0.6s both, heroBob 8s ease-in-out infinite 1.6s;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .hero-preview:hover {
+      box-shadow: 0 35px 70px -10px rgba(0, 0, 0, 0.7), 0 0 60px rgba(56, 189, 248, 0.25);
     }
 
     .hero-preview img {
@@ -256,6 +342,11 @@
       height: auto;
       display: block;
       border-radius: 10px;
+    }
+
+    @keyframes heroBob {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
     }
 
     /* Stats Bar */
@@ -273,7 +364,7 @@
     }
 
     .stat-item .num {
-      font-size: 2.2rem;
+      font-size: 2.4rem;
       font-weight: 800;
       color: #fff;
     }
@@ -284,7 +375,7 @@
       margin-top: 4px;
     }
 
-    /* Features Section */
+    /* Section Headers */
     .section-title {
       text-align: center;
       margin-bottom: 60px;
@@ -302,6 +393,7 @@
       font-size: 1.1rem;
     }
 
+    /* Features Grid with Glow Borders */
     .features-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -320,9 +412,9 @@
     }
 
     .feature-card:hover {
-      transform: translateY(-5px);
+      transform: translateY(-6px);
       border-color: var(--card-hover-border);
-      box-shadow: 0 12px 30px -10px rgba(56, 189, 248, 0.15);
+      box-shadow: 0 16px 36px -10px rgba(56, 189, 248, 0.18);
     }
 
     .feature-icon {
@@ -337,6 +429,11 @@
       font-size: 1.4rem;
       margin-bottom: 20px;
       color: var(--primary);
+      transition: transform 0.3s ease;
+    }
+
+    .feature-card:hover .feature-icon {
+      transform: scale(1.1) rotate(5deg);
     }
 
     .feature-card h3 {
@@ -352,7 +449,7 @@
       line-height: 1.6;
     }
 
-    /* Folder Preview Box */
+    /* Terminal Code Layout Box */
     .code-box {
       background: #02040a;
       border: 1px solid var(--card-border);
@@ -363,7 +460,8 @@
       color: #38bdf8;
       margin: 40px 0 100px;
       overflow-x: auto;
-      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6), 0 12px 30px rgba(0, 0, 0, 0.4);
+      position: relative;
     }
 
     .code-box-title {
@@ -413,7 +511,8 @@
 
     .showcase-card:hover {
       border-color: var(--card-hover-border);
-      transform: translateY(-4px);
+      transform: translateY(-6px);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
     }
 
     .showcase-card img {
@@ -421,6 +520,11 @@
       height: auto;
       display: block;
       border-bottom: 1px solid var(--card-border);
+      transition: transform 0.4s ease;
+    }
+
+    .showcase-card:hover img {
+      transform: scale(1.02);
     }
 
     .showcase-content {
@@ -456,12 +560,18 @@
     }
 
     .step-number {
-      font-size: 2.4rem;
+      font-size: 2.5rem;
       font-weight: 800;
       background: var(--gradient);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       margin-bottom: 12px;
+      display: inline-block;
+      transition: transform 0.3s ease;
+    }
+
+    .step-item:hover .step-number {
+      transform: scale(1.15);
     }
 
     .step-item h4 {
@@ -475,7 +585,7 @@
       font-size: 0.9rem;
     }
 
-    /* FAQ Accordion */
+    /* FAQ Section */
     .faq-section {
       margin-bottom: 110px;
     }
@@ -493,6 +603,11 @@
       border: 1px solid var(--card-border);
       border-radius: 12px;
       padding: 20px 24px;
+      transition: var(--transition);
+    }
+
+    .faq-item:hover {
+      border-color: var(--card-hover-border);
     }
 
     .faq-item h4 {
@@ -559,6 +674,39 @@
       color: var(--primary);
     }
 
+    /* Scroll Reveal Animations */
+    .reveal {
+      opacity: 0;
+      transform: translateY(30px);
+      transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .reveal.active {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Keyframe Animations */
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes fadeInDown {
+      from { opacity: 0; transform: translateY(-20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Reduced Motion Accessibility */
+    @media (prefers-reduced-motion: reduce) {
+      *, ::before, ::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
     @media (max-width: 768px) {
       .hero {
         padding: 50px 0 40px;
@@ -574,8 +722,12 @@
 </head>
 <body>
 
+  <!-- Floating Background Orbs -->
+  <div class="bg-orb bg-orb-1"></div>
+  <div class="bg-orb bg-orb-2"></div>
+
   <!-- Navigation Bar -->
-  <header>
+  <header id="header">
     <div class="container nav-wrapper">
       <div class="brand">
         <img src="assets/logo.png" alt="TUFHub Logo">
@@ -616,22 +768,22 @@
         </a>
       </div>
 
-      <!-- Preview Image -->
+      <!-- Preview Image Frame -->
       <div class="hero-preview">
         <img src="assets/hero_preview.png" alt="TUFHub Extension Dashboard Preview">
       </div>
     </div>
   </section>
 
-  <!-- Stats Bar -->
-  <div class="container">
+  <!-- Stats Bar with Animated Counter -->
+  <div class="container reveal">
     <div class="stats-bar">
       <div class="stat-item">
-        <div class="num">100%</div>
+        <div class="num" data-target="100">0%</div>
         <div class="label">Automated GitHub Sync</div>
       </div>
       <div class="stat-item">
-        <div class="num">7+</div>
+        <div class="num" data-target="7">0</div>
         <div class="label">Languages Supported</div>
       </div>
       <div class="stat-item">
@@ -646,7 +798,7 @@
   </div>
 
   <!-- Core Features Grid -->
-  <section id="features" class="container">
+  <section id="features" class="container reveal">
     <div class="section-title">
       <h2>Engineered for Seamless Coding</h2>
       <p>Built specifically for TakeUForward (TUF+) with zero friction and automated repository indexing.</p>
@@ -692,7 +844,7 @@
   </section>
 
   <!-- Auto-Generated Folder Structure -->
-  <section id="structure" class="container">
+  <section id="structure" class="container reveal">
     <div class="section-title">
       <h2>Automated Repository Folder Structure</h2>
       <p>Here is how TUFHub automatically structures your solutions repository on GitHub:</p>
@@ -705,7 +857,7 @@
         <span style="background: #22c55e;"></span>
         &nbsp;TUF-Solutions Repository Layout
       </div>
-      <pre>
+      <pre id="code-tree">
 <span class="folder">TUF-Solutions/</span>
 ├── <span class="folder">DSA/</span>
 │   ├── <span class="folder">Arrays/</span>
@@ -727,7 +879,7 @@
   </section>
 
   <!-- Showcase Gallery -->
-  <section class="container">
+  <section class="container reveal">
     <div class="section-title">
       <h2>Built for Transparency & Control</h2>
       <p>Clean extension popup dashboard with live problem counters and 1-click manual sync.</p>
@@ -761,7 +913,7 @@
   </section>
 
   <!-- 3-Step Setup -->
-  <section class="container">
+  <section class="container reveal">
     <div class="steps-section">
       <div class="section-title" style="margin-bottom: 20px;">
         <h2>Get Started in 30 Seconds</h2>
@@ -791,7 +943,7 @@
   </section>
 
   <!-- FAQ Section -->
-  <section id="faq" class="container faq-section">
+  <section id="faq" class="container faq-section reveal">
     <div class="section-title">
       <h2>Frequently Asked Questions</h2>
       <p>Everything you need to know about TUFHub.</p>
@@ -821,7 +973,7 @@
   </section>
 
   <!-- CTA Banner -->
-  <section class="container">
+  <section class="container reveal">
     <div class="cta-banner">
       <h2>Turn Practice Into Proof of Work</h2>
       <p>Start showcasing your daily TakeUForward DSA achievements on your GitHub profile today.</p>
@@ -844,6 +996,48 @@
       <p>© 2026 TUFHub by Mohit Arora. Open source under the MIT License.</p>
     </div>
   </footer>
+
+  <!-- JavaScript Animations -->
+  <script>
+    // Navbar Scroll Shrink & Blur Effect
+    const header = document.getElementById('header');
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 40) {
+        header.classList.add('scrolled');
+      } else {
+        header.classList.remove('scrolled');
+      }
+    });
+
+    // Intersection Observer for Scroll Reveals
+    const revealElements = document.querySelectorAll('.reveal');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('active');
+          
+          // Trigger stat number counters if entering stats bar
+          const nums = entry.target.querySelectorAll('.num[data-target]');
+          nums.forEach(num => {
+            const target = parseInt(num.getAttribute('data-target'));
+            let current = 0;
+            const increment = target / 30;
+            const timer = setInterval(() => {
+              current += increment;
+              if (current >= target) {
+                num.textContent = target + (target === 100 ? '%' : '+');
+                clearInterval(timer);
+              } else {
+                num.textContent = Math.ceil(current) + (target === 100 ? '%' : '+');
+              }
+            }, 30);
+          });
+        }
+      });
+    }, { threshold: 0.15 });
+
+    revealElements.forEach(el => observer.observe(el));
+  </script>
 
 </body>
 </html>
