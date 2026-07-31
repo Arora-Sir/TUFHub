@@ -589,7 +589,7 @@
       font-size: 0.9rem;
     }
 
-    /* FAQ Section */
+    /* FAQ Section - Collapsible Accordion */
     .faq-section {
       margin-bottom: 110px;
     }
@@ -599,32 +599,103 @@
       margin: 0 auto;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 12px;
     }
 
     .faq-item {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 12px;
-      padding: 20px 24px;
+      overflow: hidden;
       transition: var(--transition);
+      backdrop-filter: blur(12px);
     }
 
-    .faq-item:hover {
+    .faq-item[open] {
       border-color: var(--card-hover-border);
+      box-shadow: 0 8px 24px -6px rgba(56, 189, 248, 0.15);
     }
 
-    .faq-item h4 {
+    .faq-item summary {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 22px;
       font-size: 1.05rem;
       font-weight: 600;
       color: #fff;
-      margin-bottom: 8px;
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+      transition: background 0.2s ease;
     }
 
-    .faq-item p {
+    .faq-item summary:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .faq-item summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .faq-icon {
+      font-size: 1.3rem;
+      color: var(--primary);
+      transition: transform 0.3s ease;
+      font-weight: 400;
+      line-height: 1;
+    }
+
+    .faq-item[open] .faq-icon {
+      transform: rotate(45deg);
+    }
+
+    .faq-answer {
+      padding: 0 22px 18px;
       color: var(--text-muted);
       font-size: 0.95rem;
       line-height: 1.6;
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      margin-top: 4px;
+      padding-top: 14px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Footer & Support Pills */
+    .footer-pills {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 18px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .pill-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 18px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--card-border);
+      border-radius: 50px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      transition: var(--transition);
+    }
+
+    .pill-btn:hover {
+      background: rgba(56, 189, 248, 0.1);
+      border-color: rgba(56, 189, 248, 0.3);
+      color: #fff;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px rgba(56, 189, 248, 0.15);
     }
 
     /* CTA Banner */
@@ -946,33 +1017,53 @@
     </div>
   </section>
 
-  <!-- FAQ Section -->
+  <!-- FAQ Section (Collapsible Accordion) -->
   <section id="faq" class="container faq-section reveal">
     <div class="section-title">
       <h2>Frequently Asked Questions</h2>
-      <p>Everything you need to know about TUFHub.</p>
+      <p>Click any question to reveal the details.</p>
     </div>
 
     <div class="faq-list">
-      <div class="faq-item">
-        <h4>Is TUFHub free and open source?</h4>
-        <p>Yes, 100% free and open source under the MIT License. You can inspect the entire codebase on GitHub.</p>
-      </div>
+      <details class="faq-item">
+        <summary>
+          <span>Is TUFHub free and open source?</span>
+          <span class="faq-icon">+</span>
+        </summary>
+        <div class="faq-answer">
+          <p>Yes, 100% free and open source under the MIT License. You can inspect, fork, or contribute to the entire codebase on GitHub.</p>
+        </div>
+      </details>
 
-      <div class="faq-item">
-        <h4>What permissions does TUFHub require?</h4>
-        <p>TUFHub only requests access to <code>takeuforward.org</code> (to detect accepted submissions) and <code>api.github.com</code> (to push code to your repository). It never requests access to other websites.</p>
-      </div>
+      <details class="faq-item">
+        <summary>
+          <span>What permissions does TUFHub require?</span>
+          <span class="faq-icon">+</span>
+        </summary>
+        <div class="faq-answer">
+          <p>TUFHub only requests access to <code>takeuforward.org</code> (to detect 100% accepted submissions) and <code>api.github.com</code> (to push solutions to your repo). It never accesses or tracks any other websites.</p>
+        </div>
+      </details>
 
-      <div class="faq-item">
-        <h4>What languages does TUFHub support?</h4>
-        <p>TUFHub supports C++, Java, Python, JavaScript, C#, Go, and SQL solutions.</p>
-      </div>
+      <details class="faq-item">
+        <summary>
+          <span>What programming languages are supported?</span>
+          <span class="faq-icon">+</span>
+        </summary>
+        <div class="faq-answer">
+          <p>TUFHub supports C++, Java, Python, JavaScript, C#, Go, and SQL solutions with proper language file extensions.</p>
+        </div>
+      </details>
 
-      <div class="faq-item">
-        <h4>Does it push failing or partial submissions?</h4>
-        <p>No. TUFHub only commits solutions when your submission achieves a 100% pass result on TakeUForward.</p>
-      </div>
+      <details class="faq-item">
+        <summary>
+          <span>Does it push failing or partial submissions?</span>
+          <span class="faq-icon">+</span>
+        </summary>
+        <div class="faq-answer">
+          <p>No. TUFHub filters out failing or incomplete attempts and only commits solutions when your submission achieves a 100% pass result on TakeUForward.</p>
+        </div>
+      </details>
     </div>
   </section>
 
@@ -982,8 +1073,8 @@
       <h2>Turn Practice Into Proof of Work</h2>
       <p>Start showcasing your daily TakeUForward DSA achievements on your GitHub profile today.</p>
       <div style="display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
-        <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" class="btn btn-primary" style="padding: 14px 30px; font-size: 1rem;">Add to Chrome Now</a>
-        <a href="https://github.com/Arora-Sir/TUFHub" target="_blank" class="btn btn-secondary" style="padding: 14px 30px; font-size: 1rem;">View on GitHub</a>
+        <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="padding: 14px 30px; font-size: 1rem;">Add to Chrome Now</a>
+        <a href="https://github.com/Arora-Sir/TUFHub" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="padding: 14px 30px; font-size: 1rem;">View on GitHub</a>
       </div>
     </div>
   </section>
@@ -992,11 +1083,22 @@
   <footer>
     <div class="container">
       <div class="footer-links">
-        <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">Chrome Web Store</a>
-        <a href="https://github.com/Arora-Sir/TUFHub" target="_blank">GitHub Repository</a>
-        <a href="https://github.com/Arora-Sir/TUFHub/blob/main/PRIVACY.md" target="_blank">Privacy Policy</a>
-        <a href="https://mohitarora.me/" target="_blank">Developer Portfolio</a>
+        <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" rel="noopener noreferrer">Chrome Web Store</a>
+        <a href="https://github.com/Arora-Sir/TUFHub" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+        <a href="https://github.com/Arora-Sir/TUFHub/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+        <a href="https://mohitarora.me/" target="_blank" rel="noopener noreferrer">Developer Portfolio</a>
       </div>
+
+      <!-- Compact Footer Support Pills (Option 1) -->
+      <div class="footer-pills">
+        <a href="https://github.com/Arora-Sir/TUFHub" target="_blank" rel="noopener noreferrer" class="pill-btn">
+          ⭐ Star on GitHub
+        </a>
+        <a href="https://paypal.me/arorasir" target="_blank" rel="noopener noreferrer" class="pill-btn">
+          ☕ Support Development
+        </a>
+      </div>
+
       <p>© 2026 TUFHub by Mohit Arora. Open source under the MIT License.</p>
     </div>
   </footer>
