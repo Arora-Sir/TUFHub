@@ -9,19 +9,19 @@
 </h1>
 
 <p align="center">
-  <a href="https://tufhub.mohitarora.me" target="_blank">
-    <img src="https://img.shields.io/badge/Website-tufhub.mohitarora.me-38bdf8?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Official Website" />
+  <a href="https://tufhub.mohitarora.me" target="_blank" rel="noopener noreferrer">
+    <img src="https://img.shields.io/badge/Website-tufhub.mohitarora.me-0284c7?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Official Website" />
   </a>
-  <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
-    <img src="https://img.shields.io/badge/Chrome_Web_Store-Available_Now-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Available in Chrome Web Store" />
+  <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" rel="noopener noreferrer">
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-Available_Now-1d4ed8?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Available in Chrome Web Store" />
   </a>
 </p>
 
 <p align="center">
-  <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
-    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.0.1-blue.svg?logo=googlechrome" alt="Chrome Web Store" />
+  <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" rel="noopener noreferrer">
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.0.1-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
   </a>
-  <a href="https://github.com/Arora-Sir/TUFHub/blob/main/LICENSE">
+  <a href="https://github.com/Arora-Sir/TUFHub/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
   </a>
   <img src="https://img.shields.io/badge/manifest-v3-green.svg" alt="Manifest V3" />
@@ -32,7 +32,7 @@
 
 ## 🚀 What is TUFHub?
 
-TUFHub is a Chrome Extension that automatically syncs your **accepted solutions** from [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir) to your GitHub repository in real time. Inspired by [LeetHub](https://github.com/QasimWani/LeetHub), it brings zero-friction automated GitHub sync specifically to TakeUForward: solve, submit, and your solution lands on GitHub instantly.
+TUFHub is a Chrome Extension that automatically syncs your **accepted solutions** from <a href="https://takeuforward.org/plus?affiliate=arorasir" target="_blank" rel="noopener noreferrer">TakeUForward (TUF+)</a> to your GitHub repository in real time. Inspired by <a href="https://github.com/QasimWani/LeetHub" target="_blank" rel="noopener noreferrer">LeetHub</a>, it brings zero-friction automated GitHub sync specifically to TakeUForward: solve, submit, and your solution lands on GitHub instantly.
 
 ---
 
@@ -42,8 +42,8 @@ TUFHub is a Chrome Extension that automatically syncs your **accepted solutions*
 Click below to install TUFHub directly into Google Chrome with automatic background updates:
 
 <p align="left">
-  <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
-    <img src="https://img.shields.io/badge/Add_to_Chrome-Install_TUFHub-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Add to Chrome - Install TUFHub" />
+  <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" rel="noopener noreferrer">
+    <img src="https://img.shields.io/badge/Add_to_Chrome-Install_TUFHub-0284c7?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Add to Chrome - Install TUFHub" />
   </a>
 </p>
 
@@ -212,13 +212,14 @@ TUFHub adapts these concepts for TakeUForward (TUF+) with multi-category support
 
 If TUFHub helps you stay consistent on your coding journey, please consider supporting the project:
 
-- 🎓 **Enroll in TUF+**: Get the official course via [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir)
-- 🛒 **Chrome Web Store**: Rate and review [TUFHub on Chrome Web Store](https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge)
-- ⭐ **Star this repository**: Give [TUFHub a star on GitHub](https://github.com/Arora-Sir/TUFHub)
-- ☕ **Donate**: Support via [PayPal](https://paypal.me/arorasir) or UPI (`mohit1998arora@yescred`)
+- 🎓 **Enroll in TUF+**: Get the official course via <a href="https://takeuforward.org/plus?affiliate=arorasir" target="_blank" rel="noopener noreferrer">TakeUForward (TUF+)</a>
+- 🌐 **Official Website**: Visit <a href="https://tufhub.mohitarora.me" target="_blank" rel="noopener noreferrer">tufhub.mohitarora.me</a>
+- 🛒 **Chrome Web Store**: Rate and review <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" rel="noopener noreferrer">TUFHub on Chrome Web Store</a>
+- ⭐ **Star this repository**: Give <a href="https://github.com/Arora-Sir/TUFHub" target="_blank" rel="noopener noreferrer">TUFHub a star on GitHub</a>
+- ☕ **Donate**: Support via <a href="https://paypal.me/arorasir" target="_blank" rel="noopener noreferrer">PayPal</a> or UPI (`mohit1998arora@yescred`)
 
 ---
 
 <p align="center">
-  Crafted with ❤️ for Problem Solvers by <a href="https://github.com/Arora-Sir">Mohit Arora</a>
+  Crafted with ❤️ for Problem Solvers by <a href="https://github.com/Arora-Sir" target="_blank" rel="noopener noreferrer">Mohit Arora</a>
 </p>
