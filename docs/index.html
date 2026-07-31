@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TUFHub - TakeUForward (TUF) GitHub Sync Chrome Extension</title>
+  <meta name="description" content="Automatically sync your accepted TakeUForward (TUF+) DSA solutions to your GitHub repository in real time. Turn daily practice into a verified developer identity.">
+  <meta name="keywords" content="TUFHub, TakeUForward, DSA, GitHub Sync, LeetHub, Chrome Extension, Coding Practice, Developer Portfolio">
+  
+  <!-- Open Graph / Social Sharing -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://tufhub.mohitarora.me/">
+  <meta property="og:title" content="TUFHub - TakeUForward GitHub Sync">
+  <meta property="og:description" content="Automatically sync accepted TakeUForward (TUF+) DSA solutions to GitHub in real time.">
+  <meta property="og:image" content="https://tufhub.mohitarora.me/assets/card_autosync.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="assets/logo.png">
+
+  <!-- Fonts & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #070b14;
+      --card-bg: rgba(15, 23, 42, 0.65);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --primary: #38bdf8;
+      --primary-glow: rgba(56, 189, 248, 0.25);
+      --accent: #818cf8;
+      --success: #34d399;
+      --gradient: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
+      --radius: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 85% 65%, rgba(129, 140, 248, 0.08) 0%, transparent 40%);
+    }
+
+    a {
+      color: var(--primary);
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+
+    a:hover {
+      opacity: 0.85;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Navbar */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(16px);
+      background: rgba(7, 11, 20, 0.8);
+      border-bottom: 1px solid var(--card-border);
+      padding: 16px 0;
+    }
+
+    .nav-wrapper {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 1.25rem;
+      color: #fff;
+    }
+
+    .brand img {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+    }
+
+    .btn-primary {
+      background: var(--gradient);
+      color: #040814;
+      box-shadow: 0 0 24px var(--primary-glow);
+    }
+
+    .btn-primary:hover {
+      box-shadow: 0 0 32px rgba(56, 189, 248, 0.4);
+      color: #040814;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      border: 1px solid var(--card-border);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 90px 0 60px;
+      text-align: center;
+      position: relative;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 50px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--primary);
+      margin-bottom: 24px;
+    }
+
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--success);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    h1 {
+      font-size: clamp(2.5rem, 5vw, 4.2rem);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin-bottom: 20px;
+    }
+
+    .gradient-text {
+      background: var(--gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      max-width: 720px;
+      margin: 0 auto 36px;
+    }
+
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 60px;
+    }
+
+    /* Hero Showcase Image */
+    .hero-preview {
+      position: relative;
+      border-radius: var(--radius);
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(56, 189, 248, 0.1);
+      max-width: 950px;
+      margin: 0 auto;
+      overflow: hidden;
+    }
+
+    .hero-preview img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 10px;
+    }
+
+    /* Stats Bar */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 24px;
+      margin: 80px 0;
+      padding: 32px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      backdrop-filter: blur(12px);
+      text-align: center;
+    }
+
+    .stat-item .num {
+      font-size: 2rem;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .stat-item .label {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Features Section */
+    .section-title {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+
+    .section-title h2 {
+      font-size: 2.25rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .section-title p {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+      margin-bottom: 100px;
+    }
+
+    .feature-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 32px;
+      transition: transform 0.25 ease, border-color 0.25s ease;
+      backdrop-filter: blur(12px);
+    }
+
+    .feature-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(56, 189, 248, 0.4);
+    }
+
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: rgba(56, 189, 248, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 20px;
+      color: var(--primary);
+    }
+
+    .feature-card h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #fff;
+    }
+
+    .feature-card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    /* Screenshot Cards Section */
+    .showcase-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 28px;
+      margin-bottom: 100px;
+    }
+
+    .showcase-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      backdrop-filter: blur(12px);
+    }
+
+    .showcase-card img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .showcase-content {
+      padding: 24px;
+    }
+
+    .showcase-content h4 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+
+    .showcase-content p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    /* How It Works */
+    .steps-section {
+      margin-bottom: 100px;
+      padding: 60px 40px;
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+    }
+
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 32px;
+      margin-top: 40px;
+    }
+
+    .step-item {
+      position: relative;
+    }
+
+    .step-number {
+      font-size: 2.5rem;
+      font-weight: 800;
+      background: var(--gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 12px;
+    }
+
+    .step-item h4 {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+
+    .step-item p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    /* CTA Box */
+    .cta-banner {
+      text-align: center;
+      padding: 70px 32px;
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.1) 0%, rgba(129, 140, 248, 0.1) 100%);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: var(--radius);
+      margin-bottom: 100px;
+      backdrop-filter: blur(12px);
+    }
+
+    .cta-banner h2 {
+      font-size: 2.25rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    .cta-banner p {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+      margin-bottom: 32px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--card-border);
+      padding: 40px 0;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .footer-links a {
+      color: var(--text-muted);
+    }
+
+    .footer-links a:hover {
+      color: var(--primary);
+    }
+
+    @media (max-width: 768px) {
+      .hero {
+        padding: 50px 0 40px;
+      }
+      .steps-section {
+        padding: 40px 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <header>
+    <div class="container nav-wrapper">
+      <div class="brand">
+        <img src="assets/logo.png" alt="TUFHub Logo">
+        <span>TUFHub</span>
+      </div>
+      <div class="nav-links">
+        <a href="https://github.com/Arora-Sir/TUFHub" target="_blank" class="btn btn-secondary">GitHub</a>
+        <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" class="btn btn-primary">Add to Chrome</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="container">
+      <div class="badge">
+        <span class="badge-dot"></span> Available on Chrome Web Store v1.0.1
+      </div>
+      <h1>
+        Sync Your TakeUForward Solutions<br>
+        <span class="gradient-text">Directly to GitHub</span>
+      </h1>
+      <p>
+        Turn your daily DSA practice on TakeUForward (TUF+) into a verified developer identity. Solve problems, get 100% accepted, and let TUFHub auto-commit your code instantly.
+      </p>
+
+      <div class="hero-actions">
+        <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" class="btn btn-primary" style="padding: 14px 28px; font-size: 1.05rem;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+          Add to Chrome (Free)
+        </a>
+        <a href="https://github.com/Arora-Sir/TUFHub" target="_blank" class="btn btn-secondary" style="padding: 14px 28px; font-size: 1.05rem;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          View Source on GitHub
+        </a>
+      </div>
+
+      <!-- Preview Image -->
+      <div class="hero-preview">
+        <img src="assets/hero_preview.png" alt="TUFHub Extension Dashboard Preview">
+      </div>
+    </div>
+  </section>
+
+  <!-- Stats Bar -->
+  <div class="container">
+    <div class="stats-bar">
+      <div class="stat-item">
+        <div class="num">100%</div>
+        <div class="label">Automated GitHub Sync</div>
+      </div>
+      <div class="stat-item">
+        <div class="num">7+</div>
+        <div class="label">Languages Supported</div>
+      </div>
+      <div class="stat-item">
+        <div class="num">Manifest V3</div>
+        <div class="label">Chrome Standard Compliant</div>
+      </div>
+      <div class="stat-item">
+        <div class="num">MIT</div>
+        <div class="label">Open Source License</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Core Features Grid -->
+  <section class="container" style="margin-bottom: 80px;">
+    <div class="section-title">
+      <h2>Why Developers Love TUFHub</h2>
+      <p>Built specifically for TakeUForward (TUF+) with zero friction and smart repository management.</p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Auto-Sync on 100% Pass</h3>
+        <p>Commits accepted code solutions directly to GitHub upon 100% pass. Automatically ignores failing or incomplete attempts.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">📁</div>
+        <h3>Smart Folder Hierarchy</h3>
+        <p>Organizes code under structured categories like <code>DSA/Arrays/0001-set-matrix-zeroes/</code> with problem slug resolution.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <h3>Master Solutions Index</h3>
+        <p>Auto-generates and updates a master <code>README.md</code> in your root repository with real-time stats and category badges.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">📝</div>
+        <h3>Problem Statement README</h3>
+        <p>Creates a detailed <code>README.md</code> inside every problem folder containing difficulty, complexity, and problem details.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🔐</div>
+        <h3>PAT & OAuth Authentication</h3>
+        <p>Secure setup via GitHub Personal Access Tokens (PAT) or OAuth. Your credentials stay local and encrypted in your browser.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🔄</div>
+        <h3>Conflict-Safe Commits</h3>
+        <p>Built-in sequential queuing mechanism prevents Git 409 commit conflicts when solving multiple problems rapidly.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Showcase Gallery -->
+  <section class="container">
+    <div class="section-title">
+      <h2>Designed for Clarity & Speed</h2>
+      <p>Clean interface, zero background lag, and instant feedback.</p>
+    </div>
+
+    <div class="showcase-grid">
+      <div class="showcase-card">
+        <img src="assets/card_autosync.png" alt="Auto Sync Feature Card">
+        <div class="showcase-content">
+          <h4>Real-Time Auto Sync</h4>
+          <p>Instant background push as soon as your solution passes all test cases.</p>
+        </div>
+      </div>
+
+      <div class="showcase-card">
+        <img src="assets/card_index.png" alt="Master Index README Table">
+        <div class="showcase-content">
+          <h4>Master README Dashboard</h4>
+          <p>Maintains a clean markdown table of all solved problems sorted by topic.</p>
+        </div>
+      </div>
+
+      <div class="showcase-card">
+        <img src="assets/card_popup.png" alt="Live Extension Popup Card">
+        <div class="showcase-content">
+          <h4>Live Stats Popup</h4>
+          <p>Track Solved, Easy, Medium, and Hard counts right from your browser bar.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3-Step Setup -->
+  <section class="container">
+    <div class="steps-section">
+      <div class="section-title" style="margin-bottom: 30px;">
+        <h2>Get Started in 30 Seconds</h2>
+        <p>Simple 3-step setup to connect TakeUForward with GitHub.</p>
+      </div>
+
+      <div class="steps-grid">
+        <div class="step-item">
+          <div class="step-number">01</div>
+          <h4>Install Extension</h4>
+          <p>Add TUFHub from the official Chrome Web Store with 1 click.</p>
+        </div>
+
+        <div class="step-item">
+          <div class="step-number">02</div>
+          <h4>Link GitHub Repo</h4>
+          <p>Authorize via GitHub PAT or OAuth and choose your solutions repository name.</p>
+        </div>
+
+        <div class="step-item">
+          <div class="step-number">03</div>
+          <h4>Solve on TUF+</h4>
+          <p>Solve any DSA problem on TakeUForward and watch your solution land on GitHub!</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Banner -->
+  <section class="container">
+    <div class="cta-banner">
+      <h2>Turn Practice Into Proof of Work</h2>
+      <p>Start showcasing your daily TakeUForward DSA achievements on your GitHub profile today.</p>
+      <div style="display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
+        <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" class="btn btn-primary" style="padding: 14px 28px; font-size: 1rem;">Add to Chrome Now</a>
+        <a href="https://github.com/Arora-Sir/TUFHub" target="_blank" class="btn btn-secondary" style="padding: 14px 28px; font-size: 1rem;">View on GitHub</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">Chrome Web Store</a>
+        <a href="https://github.com/Arora-Sir/TUFHub" target="_blank">GitHub Repository</a>
+        <a href="https://github.com/Arora-Sir/TUFHub/blob/main/PRIVACY.md" target="_blank">Privacy Policy</a>
+        <a href="https://mohitarora.me/" target="_blank">Developer Portfolio</a>
+      </div>
+      <p>© 2026 TUFHub by Mohit Arora. Open source under the MIT License.</p>
+    </div>
+  </footer>
+
+</body>
+</html>
