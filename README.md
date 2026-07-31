@@ -9,6 +9,9 @@
 </h1>
 
 <p align="center">
+  <a href="https://tufhub.mohitarora.me" target="_blank">
+    <img src="https://img.shields.io/badge/Website-tufhub.mohitarora.me-38bdf8?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Official Website" />
+  </a>
   <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
     <img src="https://img.shields.io/badge/Chrome_Web_Store-Available_Now-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Available in Chrome Web Store" />
   </a>
@@ -16,7 +19,7 @@
 
 <p align="center">
   <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank">
-    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.0.0-blue.svg?logo=googlechrome" alt="Chrome Web Store" />
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.0.1-blue.svg?logo=googlechrome" alt="Chrome Web Store" />
   </a>
   <a href="https://github.com/Arora-Sir/TUFHub/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
