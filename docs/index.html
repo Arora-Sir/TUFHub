@@ -17,10 +17,14 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="assets/logo.png">
 
-  <!-- Google Fonts -->
+  <!-- Preload hero image for fast above-the-fold paint -->
+  <link rel="preload" as="image" href="assets/hero_preview.png" fetchpriority="high">
+
+  <!-- Google Fonts (non-render-blocking via media trick) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
 
   <style>
     :root {
@@ -768,9 +772,9 @@
         </a>
       </div>
 
-      <!-- Preview Image Frame -->
+      <!-- Preview Image Frame: eager + high priority for instant above-fold paint -->
       <div class="hero-preview">
-        <img src="assets/hero_preview.png" alt="TUFHub Extension Dashboard Preview">
+        <img src="assets/hero_preview.png" alt="TUFHub Extension Dashboard Preview" loading="eager" fetchpriority="high" decoding="sync">
       </div>
     </div>
   </section>
@@ -887,7 +891,7 @@
 
     <div class="showcase-grid">
       <div class="showcase-card">
-        <img src="assets/card_autosync.png" alt="Auto Sync Feature Card">
+        <img src="assets/card_autosync.png" alt="Auto Sync Feature Card" loading="lazy" decoding="async">
         <div class="showcase-content">
           <h4>Real-Time Push</h4>
           <p>Triggers instantly when your solution passes 100% of test cases on TakeUForward.</p>
@@ -895,7 +899,7 @@
       </div>
 
       <div class="showcase-card">
-        <img src="assets/card_index.png" alt="Master Index README Table">
+        <img src="assets/card_index.png" alt="Master Index README Table" loading="lazy" decoding="async">
         <div class="showcase-content">
           <h4>Master README Index</h4>
           <p>Maintains an updated markdown table with links, difficulty badges, and dates.</p>
@@ -903,7 +907,7 @@
       </div>
 
       <div class="showcase-card">
-        <img src="assets/card_popup.png" alt="Live Extension Popup Card">
+        <img src="assets/card_popup.png" alt="Live Extension Popup Card" loading="lazy" decoding="async">
         <div class="showcase-content">
           <h4>Popup Stats Dashboard</h4>
           <p>Track Solved, Easy, Medium, and Hard counts right from your Chrome toolbar.</p>
@@ -1010,18 +1014,21 @@
     });
 
     // Intersection Observer for Scroll Reveals
+    // rootMargin fires 80px BEFORE element enters viewport so animation is ready
+    // threshold: 0.05 means only 5% of the element needs to be visible to trigger
     const revealElements = document.querySelectorAll('.reveal');
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           entry.target.classList.add('active');
-          
+          observer.unobserve(entry.target); // Stop observing once active
+
           // Trigger stat number counters if entering stats bar
           const nums = entry.target.querySelectorAll('.num[data-target]');
           nums.forEach(num => {
             const target = parseInt(num.getAttribute('data-target'));
             let current = 0;
-            const increment = target / 30;
+            const increment = target / 40;
             const timer = setInterval(() => {
               current += increment;
               if (current >= target) {
@@ -1030,13 +1037,24 @@
               } else {
                 num.textContent = Math.ceil(current) + (target === 100 ? '%' : '+');
               }
-            }, 30);
+            }, 25);
           });
         }
       });
-    }, { threshold: 0.15 });
+    }, {
+      threshold: 0.05,
+      rootMargin: '0px 0px -60px 0px'
+    });
 
-    revealElements.forEach(el => observer.observe(el));
+    // Immediately reveal elements already visible in viewport on page load
+    revealElements.forEach(el => {
+      const rect = el.getBoundingClientRect();
+      if (rect.top < window.innerHeight) {
+        el.classList.add('active');
+      } else {
+        observer.observe(el);
+      }
+    });
   </script>
 
 </body>
