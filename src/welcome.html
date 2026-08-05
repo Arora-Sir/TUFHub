@@ -18,7 +18,16 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      background: #0d0d0f;
+      background-color: #0d0d0f;
+      /* Dot grid reads as a code-editor / commit-graph texture rather than a
+         generic colored blob - tied to the brand orange but restrained to a
+         faint 1px dot every 26px, plus a soft directional fade from the top
+         edge instead of a centered radial glow. */
+      background-image:
+        linear-gradient(180deg, rgba(249, 115, 22, 0.05), transparent 32%),
+        radial-gradient(rgba(249, 115, 22, 0.16) 1px, transparent 1.4px);
+      background-size: 100% 100%, 26px 26px;
+      background-position: 0 0, -3px -3px;
       font-size: 15px;
       overflow-y: auto;
       box-sizing: border-box;
