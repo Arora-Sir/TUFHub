@@ -62,6 +62,27 @@
         </div>
       </div>
 
+      <!-- Sync Health Diagnostics -->
+      <details id="health-section" class="card" style="margin-top: 10px;">
+        <summary style="cursor: pointer; font-weight: 600; font-size: 12px; display: flex; align-items: center; gap: 7px; list-style: none;">
+          <span id="health-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #6b7280; flex: 0 0 auto;"></span>
+          <span>Sync Health</span>
+          <span id="health-summary" style="margin-left: auto; opacity: 0.65; font-weight: 500;">Checking...</span>
+          <span aria-hidden="true" style="opacity: 0.5; font-size: 10px;">&#9662;</span>
+        </summary>
+        <div id="stale-build-banner" class="hidden" style="margin-top: 8px; padding: 8px 10px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 6px; color: #f87171; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; word-break: break-word;"></div>
+        <div id="health-body" style="margin-top: 10px; font-size: 11px; line-height: 1.75; overflow-wrap: anywhere; word-break: break-word;"></div>
+        <div id="health-details" class="hidden" style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, 0.1); font-size: 11px; line-height: 1.75; overflow-wrap: anywhere; word-break: break-word;"></div>
+        <div style="display: flex; gap: 6px; margin-top: 10px;">
+          <button id="toggle-details-btn" class="profile-cta secondary-btn" style="flex: 1; padding: 6px 8px; font-size: 11px;">
+            Show details
+          </button>
+          <button id="copy-diag-btn" class="profile-cta secondary-btn" style="flex: 1; padding: 6px 8px; font-size: 11px;">
+            Copy Diagnostics
+          </button>
+        </div>
+      </details>
+
       <!-- Support & Developer Section -->
       <section class="support-section">
         <p class="support-title">Support TUFHub & Practice</p>
