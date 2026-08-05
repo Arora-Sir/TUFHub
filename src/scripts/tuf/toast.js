@@ -30,7 +30,7 @@ export function hideToast() {
   }, 350);
 }
 
-export function showToast(message, type = 'info', reasonCode = '', actionCallback = null) {
+export function showToast(message, type = 'info', reasonCode = '', actionCallback = null, actionLabel = 'Fix it') {
   let toast = document.getElementById('tufhub-toast');
 
   // Cancel any active dismiss or transition timers from previous toasts
@@ -114,8 +114,8 @@ export function showToast(message, type = 'info', reasonCode = '', actionCallbac
   if (actionCallback) {
     const actionBtn = document.createElement('a');
     actionBtn.href = '#';
-    actionBtn.style.cssText = 'color: #f97316; font-weight: 600; text-decoration: underline; margin-left: 6px;';
-    actionBtn.textContent = '[Fix it]';
+    actionBtn.style.cssText = 'color: #fff; font-weight: 600; font-size: 12px; background: rgba(249,115,22,0.85); padding: 2px 10px; border-radius: 20px; text-decoration: none; margin-left: 8px; white-space: nowrap; flex-shrink: 0;';
+    actionBtn.textContent = actionLabel;
     actionBtn.addEventListener('click', (e) => {
       e.preventDefault();
       actionCallback();
@@ -152,7 +152,7 @@ export function showToast(message, type = 'info', reasonCode = '', actionCallbac
   });
 
   // Auto Dismiss logic
-  const duration = type === 'error' ? 6000 : (type === 'syncing' ? 12000 : 3500);
+  const duration = type === 'error' ? 8000 : (type === 'syncing' ? 15000 : (actionCallback ? 10000 : 7000));
   activeTimer = setTimeout(() => {
     hideToast();
   }, duration);

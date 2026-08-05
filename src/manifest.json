@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "TUFHub - TakeUForward (TUF) GitHub Sync",
   "short_name": "TUFHub",
-  "version": "1.0.1",
-  "version_name": "1.0.1",
+  "version": "1.1.0",
+  "version_name": "1.1.0",
   "minimum_chrome_version": "111",
   "description": "Automatically sync your TakeUForward (TUF+) accepted solutions to GitHub.",
   "permissions": [
@@ -23,7 +23,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://takeuforward.org/plus/*"
+        "https://takeuforward.org/plus*",
+        "https://*.takeuforward.org/plus*"
       ],
       "js": [
         "scripts/tuf/interceptor.js"
@@ -33,7 +34,8 @@
     },
     {
       "matches": [
-        "https://takeuforward.org/plus/*"
+        "https://takeuforward.org/plus*",
+        "https://*.takeuforward.org/plus*"
       ],
       "js": [
         "scripts/tuf/content.js"

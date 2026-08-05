@@ -5,6 +5,73 @@
 
 import { decode } from '../util.js';
 
+export const DIAG_LIMIT = 50;
+
+/**
+ * Detects an orphaned content script. When Chrome updates or reloads the
+ * extension underneath an open tab, the isolated world keeps running but every
+ * chrome.* call throws "Extension context invalidated". chrome.runtime.id goes
+ * undefined at that moment, which is the only reliable synchronous signal.
+ * Without this check the failure surfaces as an empty storage read, which the
+ * sync engine used to misreport as "GitHub not connected".
+ */
+export function isExtensionContextAlive() {
+  try {
+    return !!(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Appends one entry to a bounded diagnostic ring buffer in chrome.storage.local.
+ * Every decision point that can abort a sync writes here, so a silent drop can
+ * be diagnosed from the popup instead of requiring live DevTools.
+ */
+export async function pushDiag(stage, reasonCode = '', detail = '') {
+  if (!isExtensionContextAlive()) return;
+  try {
+    const data = await safeGetStorage('tufhub_diag');
+    const log = Array.isArray(data.tufhub_diag) ? data.tufhub_diag : [];
+    log.push({
+      ts: Date.now(),
+      stage,
+      reasonCode,
+      detail: typeof detail === 'string' ? detail.slice(0, 300) : String(detail).slice(0, 300),
+      url: (typeof location !== 'undefined' && location.href) ? location.href.slice(0, 200) : ''
+    });
+    while (log.length > DIAG_LIMIT) log.shift();
+    await safeSetStorage({ tufhub_diag: log });
+  } catch (e) {}
+}
+
+export async function getDiag() {
+  const data = await safeGetStorage('tufhub_diag');
+  return Array.isArray(data.tufhub_diag) ? data.tufhub_diag : [];
+}
+
+export async function clearDiag() {
+  await safeSetStorage({ tufhub_diag: [] });
+}
+
+/**
+ * Latest-state snapshot for the popup's Sync Health panel. Kept separate from
+ * the ring buffer so the popup can render without scanning the whole log.
+ */
+export async function updateHealth(patch) {
+  if (!isExtensionContextAlive()) return;
+  try {
+    const data = await safeGetStorage('tufhub_health');
+    const health = data.tufhub_health || {};
+    await safeSetStorage({ tufhub_health: { ...health, ...patch } });
+  } catch (e) {}
+}
+
+export async function getHealth() {
+  const data = await safeGetStorage('tufhub_health');
+  return data.tufhub_health || {};
+}
+
 export async function safeGetStorage(keys) {
   try {
     if (typeof chrome !== 'undefined' && chrome && chrome.storage && chrome.storage.local) {
@@ -124,6 +191,31 @@ export async function updateStats(difficulty, problemSlug, fileShas, mainTopic =
   await safeSetStorage({ stats });
   return stats;
 }
+function generateHashCode(str) {
+  let hash = 0;
+  for (let i = 0, len = str.length; i < len; i++) {
+    const chr = str.charCodeAt(i);
+    hash = (hash << 5) - hash + chr;
+    hash |= 0;
+  }
+  return hash.toString(36);
+}
+
+export async function isCodeIdentical(slug, newCode) {
+  const hash = generateHashCode(newCode || '');
+  const storage = await safeGetStorage('tufhub_code_hashes');
+  const hashes = storage.tufhub_code_hashes || {};
+  return hashes[slug] === hash;
+}
+
+export async function updateCodeHash(slug, newCode) {
+  const hash = generateHashCode(newCode || '');
+  const storage = await safeGetStorage('tufhub_code_hashes');
+  const hashes = storage.tufhub_code_hashes || {};
+  hashes[slug] = hash;
+  await safeSetStorage({ tufhub_code_hashes: hashes });
+}
+
 
 export async function isDebounced(problemSlug, cooldownMs = 5000) {
   const stats = await getStats();
@@ -158,6 +250,14 @@ export async function clearOfflineQueue() {
   await safeSetStorage({ tufhub_queue: [] });
 }
 
+/**
+ * Replaces the queue wholesale. Used by the flush loop to retain items that
+ * failed to replay instead of dropping them.
+ */
+export async function setOfflineQueue(queue) {
+  await safeSetStorage({ tufhub_queue: Array.isArray(queue) ? queue : [] });
+}
+
 export async function resetStats() {
   const emptyStats = {
     solved: 0,
@@ -173,19 +273,34 @@ export async function resetStats() {
   return emptyStats;
 }
 
-export async function scanAndSyncRepoStats(token, hook) {
+export async function scanAndSyncRepoStats(token, hook, force = false) {
   if (!token || !hook) return null;
 
+  const currentStats = await getStats();
+  const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+  const lastScan = currentStats.last_repo_scan || 0;
+
+  if (!force && currentStats.solved > 0 && (Date.now() - lastScan < SIX_HOURS_MS)) {
+    console.log('[TUFHub Stats] Repo scan skipped (fresh within 6h gate).');
+    return currentStats;
+  }
+
   try {
+    const existingShas = currentStats.shas || {};
+    const existingProblems = currentStats.problems || {};
+    const existingHierarchy = currentStats.hierarchy || {};
+    const existingLastSyncTime = currentStats.last_sync_time || {};
+
     const stats = {
       solved: 0,
       easy: 0,
       medium: 0,
       hard: 0,
-      shas: {},
-      last_sync_time: {},
-      hierarchy: {},
-      problems: {}
+      shas: { ...existingShas },
+      last_sync_time: { ...existingLastSyncTime },
+      hierarchy: { ...existingHierarchy },
+      problems: { ...existingProblems },
+      last_repo_scan: Date.now()
     };
 
     // 1. Fetch root README.md from repo
@@ -203,12 +318,18 @@ export async function scanAndSyncRepoStats(token, hook) {
 
         // Extract Summary Numbers: | **X** | Y | Z | W |
         const summaryMatch = content.match(/\|\s*\*\*(\d+)\*\*\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|/);
+        let parsedSolved = 0;
+        let parsedEasy = 0;
+        let parsedMedium = 0;
+        let parsedHard = 0;
         if (summaryMatch) {
-          stats.solved = parseInt(summaryMatch[1], 10) || 0;
-          stats.easy = parseInt(summaryMatch[2], 10) || 0;
-          stats.medium = parseInt(summaryMatch[3], 10) || 0;
-          stats.hard = parseInt(summaryMatch[4], 10) || 0;
+          parsedSolved = parseInt(summaryMatch[1], 10) || 0;
+          parsedEasy = parseInt(summaryMatch[2], 10) || 0;
+          parsedMedium = parseInt(summaryMatch[3], 10) || 0;
+          parsedHard = parseInt(summaryMatch[4], 10) || 0;
         }
+
+        let parsedCount = 0;
 
         // Parse Solved Problems Index rows: | # | Title | Solution(s) | Difficulty | Category |
         const tableLines = content.split('\n');
@@ -227,7 +348,9 @@ export async function scanAndSyncRepoStats(token, hook) {
               else if (diffText.toLowerCase().includes('hard')) difficulty = 'Hard';
 
               if (slug && slug !== '-' && title !== 'No problems synced yet') {
-                stats.shas[slug] = stats.shas[slug] || { synced: true };
+                parsedCount++;
+                const existing = existingShas[slug];
+                stats.shas[slug] = existing ? { ...existing, synced: true } : { synced: true };
                 const parts = folderPath.split('/');
                 const mainCategory = parts[0] || 'DSA';
                 const mainTopic = parts.length > 2 ? parts[1] : (parts[1] && parts[1] !== slug ? parts[1] : 'General');
@@ -271,6 +394,19 @@ export async function scanAndSyncRepoStats(token, hook) {
           }
         });
 
+        // Guard against zero-reset if local stats had solved > 0 but parse found 0 problems
+        if (parsedCount === 0 && parsedSolved === 0 && currentStats.solved > 0) {
+          stats.solved = currentStats.solved;
+          stats.easy = currentStats.easy;
+          stats.medium = currentStats.medium;
+          stats.hard = currentStats.hard;
+        } else {
+          stats.solved = parsedSolved || parsedCount;
+          stats.easy = parsedEasy;
+          stats.medium = parsedMedium;
+          stats.hard = parsedHard;
+        }
+
         await safeSetStorage({ stats });
         return stats;
       }
@@ -310,14 +446,15 @@ export async function scanAndSyncRepoStats(token, hook) {
 
         if (uniqueFolders.size > 0) {
           stats.solved = uniqueFolders.size;
-          stats.easy = stats.easy || Math.floor(stats.solved * 0.3);
-          stats.medium = stats.medium || Math.floor(stats.solved * 0.5);
-          stats.hard = stats.hard || (stats.solved - stats.easy - stats.medium);
+          stats.easy = Math.floor(stats.solved * 0.3);
+          stats.medium = Math.floor(stats.solved * 0.5);
+          stats.hard = stats.solved - stats.easy - stats.medium;
 
           uniqueFolders.forEach(folder => {
             const parts = folder.split('/');
             const slug = parts[parts.length - 1];
-            stats.shas[slug] = stats.shas[slug] || { synced: true };
+            const existing = existingShas[slug];
+            stats.shas[slug] = existing ? { ...existing, synced: true } : { synced: true };
             stats.problems[slug] = stats.problems[slug] || {
               title: slug.replace(/-/g, ' ').toUpperCase(),
               difficulty: 'Medium',

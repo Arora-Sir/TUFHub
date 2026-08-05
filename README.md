@@ -19,7 +19,7 @@
 
 <p align="center">
   <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" rel="noopener noreferrer">
-    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.0.1-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.1.0-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
   </a>
   <a href="https://github.com/Arora-Sir/TUFHub/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
@@ -83,12 +83,17 @@ Commits code solutions with clean folder hierarchy, language extensions, and for
 ## ✨ Features
 
 - **Auto-Sync on 100% Pass**: Only commits accepted solutions; ignores failing attempts.
+- **Verifiable Sync Proof**: Success toasts show the short commit SHA and a clickable `[View commit]` link directly to GitHub.
+- **Toolbar Status Badges**: Toolbar icon shows Green `OK` on success, Red `!` on error, and Amber count for queued offline syncs.
 - **Multi-Category Organization**: Categorizes problems under DSA, SQL, Aptitude, and Mock Tests.
 - **Smart Folder Hierarchy**: Dynamically resolves subtopics and problem slugs.
-- **Problem Statement README**: Generates per-problem `README.md` with difficulty & complexity analysis.
-- **Master Repository Index**: Maintains a master `README.md` index table sorted by category & difficulty.
-- **Live Extension Popup**: Tracks Solved, Easy, Medium, Hard counts with a 1-click **↻ Sync** button.
+- **SPA Route Protection**: Automatically re-arms content scripts on TUF+ single-page navigation (no manual refresh needed).
+- **Problem Statement README**: Generates per-problem `README.md` with difficulty and complexity analysis.
+- **Master Repository Index**: Maintains a master `README.md` index table sorted by category and difficulty.
+- **Live Extension Popup**: Tracks Solved, Easy, Medium, Hard counts with a 1-click **Sync** button.
+- **Sync Health Panel**: Real-time tab hook status, last successful commit link, and a 50-event diagnostic log in the popup.
 - **Conflict-Safe Commits**: Sequential queue prevents Git 409 commit conflicts.
+- **Offline Queue**: Queues syncs when offline and flushes automatically when the connection is restored.
 
 ---
 
@@ -186,10 +191,16 @@ No. TUFHub syncs strictly when 100% test cases pass.
 TUFHub adds the new language file alongside the existing solution in the same folder and updates the master index.
 
 **Q: My stats show 0 after reinstalling.**  
-Click the **↻ Sync** button in the popup to re-scan your repository and restore your stats instantly.
+Click the **Sync** button in the popup to re-scan your repository and restore your stats instantly.
 
 **Q: Can I use an existing repository?**  
 Yes. Enter the name of your existing repo during setup; TUFHub will connect to it and scan existing solutions.
+
+**Q: The popup shows "Messaging check failed" after a Chrome update or extension reload.**  
+This happens when the TUF+ tab was open before the extension was updated and its internal messaging channels are now stale. Simply refresh the TUF+ tab (F5) to reload the new content script. The popup will immediately show green once the fresh script is running.
+
+**Q: The sync toast appeared but the commit link shows an older SHA.**  
+The sync committed successfully. The older SHA in storage is from a previous sync before the extension was reloaded. Refresh the TUF+ tab and the next sync will show the correct new SHA.
 
 **Q: Is this extension affiliated with TakeUForward?**  
 No. This is an independent open-source tool and is not officially affiliated with TakeUForward.

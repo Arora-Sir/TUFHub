@@ -23,7 +23,7 @@ TUFHub is designed with a single, clear purpose: to automatically sync your acce
 ## 3. Permissions Used & Justification
 
 - **`storage`**: Used to save extension configuration, authentication tokens, and sync status locally in your browser.
-- **`tabs`**: Used to verify if the current active tab is a TakeUForward problem page.
+- **`tabs`**: Used to verify if the current active tab is a TakeUForward problem page, and to detect in-page (client-side) navigation on TUF+ so the verdict listener can be re-armed without a manual page reload.
 - **`scripting`**: Used to inject network monitoring scripts into TakeUForward problem pages to capture judge verdict events in real-time.
 - **`host_permissions` (`takeuforward.org`, `github.com`, `api.github.com`)**: Required to listen for accepted submission verdicts on TakeUForward and push code files to your target GitHub repository.
 

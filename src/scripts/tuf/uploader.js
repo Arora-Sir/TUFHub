@@ -49,7 +49,11 @@ export async function uploadToGitHub(token, hook, path, content, commitMessage, 
 
     if (response.ok) {
       const json = await response.json();
-      return json.content.sha;
+      return {
+        contentSha: json.content ? json.content.sha : '',
+        commitSha: json.commit ? json.commit.sha : '',
+        htmlUrl: json.commit ? json.commit.html_url : (json.content ? json.content.html_url : '')
+      };
     }
 
     // Handle 409 Conflict / 422 Unprocessable Content with backoff retry

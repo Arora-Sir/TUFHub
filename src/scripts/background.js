@@ -5,11 +5,107 @@
 
 const DEFAULT_CLIENT_ID = ''; // User provides their own OAuth Client ID via the welcome page
 
+function applyBadgeState(badgeData) {
+  const { state, count } = badgeData || {};
+  if (state === 'success') {
+    chrome.action.setBadgeText({ text: 'OK' });
+    chrome.action.setBadgeBackgroundColor({ color: '#22c55e' });
+    setTimeout(() => {
+      chrome.action.setBadgeText({ text: '' });
+    }, 5000);
+  } else if (state === 'error') {
+    chrome.action.setBadgeText({ text: '!' });
+    chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
+  } else if (state === 'queued') {
+    chrome.action.setBadgeText({ text: String(count || 1) });
+    chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' });
+  } else {
+    chrome.action.setBadgeText({ text: '' });
+  }
+}
+
+chrome.runtime.onStartup.addListener(() => {
+  chrome.storage.local.get(['tufhub_badge'], (res) => {
+    if (res && res.tufhub_badge) {
+      applyBadgeState(res.tufhub_badge);
+    }
+  });
+});
+
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     const welcomeUrl = chrome.runtime.getURL('welcome.html');
     chrome.tabs.create({ url: welcomeUrl, active: true });
   }
+});
+
+// -------------------------------------------------------------
+// SPA re-injection guard
+//
+// Chrome never re-injects declarative content scripts on Next.js History API
+// navigation. If a tab starts on a URL outside the content-script match
+// patterns (the site root, for example) and the user then routes into a problem
+// entirely client-side, the tab has no interceptor at all and submissions sync
+// silently fail until a hard refresh. This restores them without needing the
+// webNavigation permission - chrome.tabs.onUpdated already reports SPA URL
+// changes, and "tabs" + "scripting" are both already declared in the manifest.
+// -------------------------------------------------------------
+const TUF_PLUS_URL = /^https:\/\/(?:[a-z0-9-]+\.)*takeuforward\.org\/plus/i;
+
+function isTufPlusUrl(url) {
+  return typeof url === 'string' && TUF_PLUS_URL.test(url);
+}
+
+function pingContentScript(tabId) {
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.sendMessage(tabId, { type: 'TUFHUB_PING' }, (res) => {
+        // lastError just means nothing is listening in that tab yet.
+        if (chrome.runtime.lastError) resolve(null);
+        else resolve(res || null);
+      });
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
+
+async function ensureScriptsInjected(tabId, url) {
+  const pong = await pingContentScript(tabId);
+  const needsInterceptor = !pong || !pong.interceptor;
+  const needsContent = !pong || !pong.alive;
+
+  if (!needsInterceptor && !needsContent) return;
+
+  // Both scripts self-guard against double initialization, so a redundant
+  // injection is a no-op rather than a duplicate listener.
+  try {
+    if (needsInterceptor) {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['scripts/tuf/interceptor.js'],
+        world: 'MAIN'
+      });
+    }
+    if (needsContent) {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['scripts/tuf/content.js']
+      });
+    }
+    console.log('[TUFHub BG] Re-armed TUF+ scripts after navigation:', url);
+  } catch (e) {
+    // Tab closed, restricted page, or another navigation raced us.
+  }
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  const url = changeInfo.url || (tab && tab.url);
+  if (!isTufPlusUrl(url)) return;
+  // changeInfo.url covers History API navigation; status 'complete' covers a
+  // full document load that raced the declarative injection.
+  if (!changeInfo.url && changeInfo.status !== 'complete') return;
+  ensureScriptsInjected(tabId, url);
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -34,14 +130,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
 
-  if (request.type === 'SHOW_BADGE_SUCCESS') {
-    chrome.action.setBadgeText({ text: 'OK' });
-    chrome.action.setBadgeBackgroundColor({ color: '#22c55e' });
-    setTimeout(() => {
-      chrome.action.setBadgeText({ text: '' });
-    }, 5000);
+  if (request.type === 'SET_BADGE' || request.type === 'SHOW_BADGE_SUCCESS') {
+    const state = request.type === 'SHOW_BADGE_SUCCESS' ? 'success' : request.state;
+    const count = request.count;
+    const badgeData = { state, count };
+    chrome.storage.local.set({ tufhub_badge: badgeData });
+    applyBadgeState(badgeData);
     sendResponse({ status: 'badge_updated' });
     return true;
+  }
+
+  if (request.type === 'CLEAR_BADGE') {
+    chrome.storage.local.remove(['tufhub_badge']);
+    chrome.action.setBadgeText({ text: '' });
+    sendResponse({ status: 'badge_cleared' });
+    return true;
+  }
+
+  if (request.type === 'REINJECT_TAB_SCRIPTS') {
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tab = tabs && tabs[0];
+      if (tab && isTufPlusUrl(tab.url || '')) {
+        await ensureScriptsInjected(tab.id, tab.url);
+        sendResponse({ status: 'reinjected' });
+      } else {
+        sendResponse({ status: 'no_tab' });
+      }
+    });
+    return true; // Keep message channel open for async response
   }
 
   if (request.type === 'OPEN_POPUP') {
