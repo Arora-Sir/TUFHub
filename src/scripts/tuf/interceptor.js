@@ -1,6 +1,6 @@
 /**
  * TUFHub Page Interceptor (MAIN World)
- * Direct Recursive Payload Matcher with User Submission Gate (Prevents Page Load Auto-Sync)
+ * Intent-gated payload matcher with a self-healing fetch/XHR hook.
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -11,19 +11,118 @@
   if (window.__TUFHUB_INTERCEPTOR_INITED__) return;
   window.__TUFHUB_INTERCEPTOR_INITED__ = true;
 
-  console.log('%c[TUFHub Interceptor] 🚀 MAIN world fetch/XHR hook active.', 'color: #22c55e; font-weight: bold; font-size: 13px;');
+  const TUFHUB_VERSION = process.env.TUFHUB_VERSION || '0.0.0';
+
+  // Absolute safety cap. This is NOT a race against the judge - the gate stays
+  // open until a verdict arrives, the user navigates away, or this cap trips.
+  // The old build used a 45s window, which silently dropped every verdict from
+  // a cold judge (typically the first submission after an idle period).
+  const ARM_MAX_AGE_MS = 10 * 60 * 1000;
+  const ARM_KEY = '__tufhub_arm_state__';
+
+  console.log(`%c[TUFHub Interceptor v${TUFHUB_VERSION}] 🚀 MAIN world fetch/XHR hook active.`, 'color: #22c55e; font-weight: bold; font-size: 13px;');
+
+  // Liveness marker readable from the isolated world (CustomEvents dispatched at
+  // document_start would be missed - content.js only starts at document_idle).
+  // Re-asserted on activity in case a framework re-render strips it.
+  function markAlive() {
+    try {
+      if (document.documentElement.getAttribute('data-tufhub-interceptor') !== TUFHUB_VERSION) {
+        document.documentElement.setAttribute('data-tufhub-interceptor', TUFHUB_VERSION);
+      }
+    } catch (e) {}
+  }
+  markAlive();
 
   let cachedProblemDescription = '';
   let cachedProblemTitle = '';
+  let cachedProblemSlug = '';
   let lastProcessedSubmissionId = '';
 
-  let userSubmitTimestamp = 0;
-  let activeSubmissionId = '';
+  function currentProblemSlug() {
+    try {
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      return parts[parts.length - 1] || '';
+    } catch (e) {
+      return '';
+    }
+  }
 
-  // Listen for explicit Submit click or Ctrl+Enter from content script
+  function diag(stage, reasonCode, detail, persist = true) {
+    try {
+      console.log(`[TUFHub Interceptor] ${stage}${reasonCode ? ' :: ' + reasonCode : ''}`, detail || '');
+    } catch (e) {}
+    if (!persist) return;
+    try {
+      window.dispatchEvent(new CustomEvent('TUFHUB_DIAG', {
+        detail: { stage, reasonCode: reasonCode || '', detail: detail == null ? '' : String(detail) }
+      }));
+    } catch (e) {}
+  }
+
+  // -------------------------------------------------------------
+  // Submit-intent gate (replaces the old 45s wall-clock window)
+  // -------------------------------------------------------------
+  function loadArmState() {
+    try {
+      const raw = sessionStorage.getItem(ARM_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch (e) {}
+    return { armed: false, epoch: 0, at: 0, slug: '' };
+  }
+
+  // sessionStorage keeps the gate armed across tab freeze, discard-and-restore
+  // and bfcache, which plain closure state does not survive.
+  let armState = loadArmState();
+
+  function saveArmState() {
+    try {
+      sessionStorage.setItem(ARM_KEY, JSON.stringify(armState));
+    } catch (e) {}
+  }
+
+  function arm(source) {
+    markAlive();
+    armState = {
+      armed: true,
+      epoch: (armState.epoch || 0) + 1,
+      at: Date.now(),
+      slug: currentProblemSlug()
+    };
+    // A fresh intent must never be suppressed by the previous verdict's id.
+    lastProcessedSubmissionId = '';
+    saveArmState();
+    diag('ARMED', source, `epoch=${armState.epoch} slug=${armState.slug}`);
+  }
+
+  function disarm(reason) {
+    if (!armState.armed) return;
+    armState = Object.assign({}, armState, { armed: false });
+    saveArmState();
+    diag('DISARMED', reason, '', false);
+  }
+
+  function isArmed() {
+    if (!armState.armed) return false;
+    if (Date.now() - (armState.at || 0) > ARM_MAX_AGE_MS) {
+      disarm('SAFETY_CAP_EXPIRED');
+      return false;
+    }
+    if (armState.slug && armState.slug !== currentProblemSlug()) {
+      disarm('NAVIGATED_AWAY');
+      return false;
+    }
+    return true;
+  }
+
+  // Dispatched by content.js on a real Submit click / Ctrl+Enter. This gives the
+  // gate a second, independent opener so detection no longer depends solely on
+  // observing the POST /judge/submit response.
   window.addEventListener('TUFHUB_USER_SUBMIT_CLICKED', () => {
-    userSubmitTimestamp = Date.now();
-    console.log('%c[TUFHub Interceptor] 🎯 User Submit Intent Registered!', 'color: #3b82f6; font-weight: bold;');
+    arm('USER_SUBMIT_CLICK');
   });
 
   function extractCodeFromMonaco() {
@@ -69,7 +168,7 @@
 
   function extractDescriptionFromDOM() {
     try {
-      const panel = 
+      const panel =
         document.querySelector('[data-tuf-ai-selectable="true"]') ||
         document.querySelector('.problem-statement')?.closest('div.overflow-y-auto') ||
         document.querySelector('.problem-statement')?.parentElement?.parentElement ||
@@ -114,12 +213,21 @@
       return findSubmissionObject(obj.submissions[0]);
     }
 
-    if (obj.verdict || obj.submission_status || obj.status_text || obj.status) {
+    // Unambiguous verdict fields win outright.
+    if (obj.verdict || obj.submission_status || obj.status_text) {
       return obj;
     }
 
+    // A bare `status` is ambiguous: REST envelopes use {status:'success', data:{...}},
+    // and 'SUCCESS' is treated as an accepted verdict downstream. Always prefer a
+    // nested payload so the wrapper is not mistaken for the verdict itself.
     if (obj.data) {
-      return findSubmissionObject(obj.data);
+      const nested = findSubmissionObject(obj.data);
+      if (nested) return nested;
+    }
+
+    if (obj.status) {
+      return obj;
     }
 
     return null;
@@ -128,6 +236,7 @@
   function processPayload(method, url, data) {
     if (!data) return;
 
+    markAlive();
     const urlStr = url.toString().toLowerCase();
 
     // Cache Problem Details on page load
@@ -136,7 +245,10 @@
         const prob = data.data || data.problem || data;
         if (prob.description) cachedProblemDescription = prob.description;
         if (prob.title || prob.name) cachedProblemTitle = prob.title || prob.name;
-        console.log('[TUFHub Interceptor] 📝 Cached problem metadata:', { title: cachedProblemTitle, descLength: cachedProblemDescription.length });
+        // Bind the cache to the slug it was captured on, so an SPA navigation
+        // cannot leak the previous problem's title into the next sync.
+        cachedProblemSlug = currentProblemSlug();
+        console.log('[TUFHub Interceptor] 📝 Cached problem metadata:', { title: cachedProblemTitle, slug: cachedProblemSlug, descLength: cachedProblemDescription.length });
       } catch (e) {}
       return;
     }
@@ -153,24 +265,25 @@
 
     // Must be judge submit or judge submissions
     if (!urlStr.includes('/judge/submit') && !urlStr.includes('/judge/submissions') && !urlStr.includes('/submission/result')) {
-      return;
-    }
-
-    // 1. If this is a POST to /judge/submit, user just clicked Submit!
-    if (method === 'POST' && urlStr.includes('/judge/submit')) {
-      userSubmitTimestamp = Date.now();
-      const targetSubId = data.data?.submission_id || data.submission_id || data.data?.id;
-      if (targetSubId) {
-        activeSubmissionId = targetSubId;
+      // Surface near-misses so an endpoint rename on TUF's side is visible
+      // instead of killing detection silently.
+      if (urlStr.includes('judge') || urlStr.includes('verdict') || urlStr.includes('submission')) {
+        diag('UNMATCHED_ENDPOINT', 'ENDPOINT_NOT_IN_ALLOWLIST', `${method} ${urlStr}`);
       }
-      console.log('%c[TUFHub Interceptor] 🚀 Active Submission Initiated via POST /judge/submit!', 'color: #8b5cf6; font-weight: bold;', { activeSubmissionId });
       return;
     }
 
-    // 2. CRITICAL GATE: Ignore GET requests on page load UNLESS user clicked Submit within last 45 seconds!
-    const isWithinSubmitWindow = (Date.now() - userSubmitTimestamp) < 45000;
-    if (!isWithinSubmitWindow) {
-      console.log('[TUFHub Interceptor] ℹ️ Page-load history fetch ignored (User did not click Submit recently).');
+    // 1. POST to /judge/submit means the user definitely submitted. Arm the gate
+    //    and stop: this response carries the queued submission, not a verdict,
+    //    and evaluating it risks reading an API envelope as an "accepted".
+    if (method === 'POST' && urlStr.includes('/judge/submit')) {
+      arm('POST_JUDGE_SUBMIT');
+      return;
+    }
+
+    // 2. GATE: ignore page-load history fetches unless a submit intent is live.
+    if (!isArmed()) {
+      diag('IGNORED', 'NOT_ARMED', 'No live submit intent (page-load history fetch).', false);
       return;
     }
 
@@ -178,13 +291,14 @@
 
     const targetObj = findSubmissionObject(data);
     if (!targetObj) {
+      diag('WAITING', 'NO_SUBMISSION_OBJECT', `${method} ${urlStr}`, false);
       return;
     }
 
     const rawVerdict = (targetObj.verdict || targetObj.status || targetObj.submission_status || '').toString().trim().toUpperCase();
-    
+
     if (!rawVerdict.includes('ACCEPTED') && rawVerdict !== 'SUCCESS') {
-      console.log(`[TUFHub Interceptor] ⏳ Waiting: Verdict is "${rawVerdict}" (not ACCEPTED yet).`);
+      diag('WAITING', 'VERDICT_NOT_ACCEPTED', rawVerdict, false);
       return;
     }
 
@@ -192,14 +306,24 @@
     const total = targetObj.total_test_cases ?? targetObj.totalTestCases ?? targetObj.total;
 
     if (total !== undefined && passed !== undefined && total > 0 && passed < total) {
-      console.warn(`[TUFHub Interceptor] 🛑 Ignored: Test cases incomplete (${passed}/${total} passed).`);
+      diag('DROPPED', 'PARTIAL_TEST_CASES', `${passed}/${total}`);
       return;
     }
 
-    const submissionId = targetObj.submission_id || targetObj.id || `${urlStr}_${passed}_${total}`;
-    if (submissionId === lastProcessedSubmissionId) return;
+    // Dedupe key. The old fallback was `${url}_${passed}_${total}`, which is
+    // identical across re-submits of the same problem (and across different
+    // problems with the same test-case count), permanently suppressing them for
+    // the life of the document. Binding to the slug + submit epoch makes every
+    // fresh Submit produce a distinct key.
+    const submissionId = targetObj.submission_id || targetObj.id ||
+      `${currentProblemSlug()}_e${armState.epoch}_${passed}_${total}`;
+
+    if (submissionId === lastProcessedSubmissionId) {
+      diag('DROPPED', 'DUPLICATE_SUBMISSION_ID', String(submissionId));
+      return;
+    }
     lastProcessedSubmissionId = submissionId;
-    userSubmitTimestamp = 0; // Reset gate after successful trigger
+    disarm('VERDICT_DISPATCHED');
 
     console.log('%c[TUFHub Interceptor] 🎉 100% PASSED ACCEPTED SUBMISSION CONFIRMED!', 'color: #3b82f6; font-weight: bold; font-size: 13px;', { verdict: rawVerdict, passed, total });
 
@@ -209,11 +333,13 @@
     const titleElem = document.querySelector('h1, [class*="title"], [class*="problem-name"]');
     const diffElem = document.querySelector('[class*="difficulty"], [class*="badge"]');
 
-    const title = cachedProblemTitle || (titleElem ? titleElem.innerText.trim() : '');
+    const slugNow = currentProblemSlug();
+    const cachedTitleIsFresh = cachedProblemTitle && cachedProblemSlug === slugNow;
+    const title = (cachedTitleIsFresh ? cachedProblemTitle : '') || (titleElem ? titleElem.innerText.trim() : '');
     const difficulty = diffElem ? diffElem.innerText.trim() : 'Medium';
     const description = extractDescriptionFromDOM();
 
-    console.log('[TUFHub Interceptor] 📤 Dispatching TUFHUB_ACCEPTED_SUBMISSION custom event...');
+    diag('VERDICT_ACCEPTED', 'DISPATCHING', `${slugNow} ${passed}/${total}`);
 
     window.dispatchEvent(new CustomEvent('TUFHUB_ACCEPTED_SUBMISSION', {
       detail: {
@@ -228,22 +354,66 @@
     }));
   }
 
-  // Hook fetch
-  const originalFetch = window.fetch;
-  window.fetch = function (...args) {
-    const url = args[0] ? args[0].toString() : '';
-    const options = args[1] || {};
-    const method = (options.method || 'GET').toUpperCase();
+  // -------------------------------------------------------------
+  // Self-healing fetch hook
+  // -------------------------------------------------------------
+  function requestMeta(input, init) {
+    let url = '';
+    let method = 'GET';
+    try {
+      if (typeof Request !== 'undefined' && input instanceof Request) {
+        // Plain String(input) on a Request yields "[object Request]", which used
+        // to make every Request-style fetch invisible to the matcher.
+        url = input.url;
+        method = input.method || 'GET';
+      } else {
+        url = input ? input.toString() : '';
+      }
+      if (init && init.method) method = init.method;
+    } catch (e) {}
+    return { url, method: (method || 'GET').toUpperCase() };
+  }
 
-    return originalFetch.apply(this, args).then((response) => {
-      try {
-        response.clone().json().then((data) => {
-          processPayload(method, url, data);
-        }).catch(() => {});
-      } catch (e) {}
-      return response;
+  function wrapFetch(target) {
+    if (typeof target !== 'function' || target.__tufhubWrapped) return target;
+
+    const wrapped = function (...args) {
+      const { url, method } = requestMeta(args[0], args[1]);
+      return target.apply(this, args).then((response) => {
+        try {
+          response.clone().json().then((data) => {
+            processPayload(method, url, data);
+          }).catch(() => {});
+        } catch (e) {}
+        return response;
+      });
+    };
+    wrapped.__tufhubWrapped = true;
+    wrapped.__tufhubOriginal = target;
+    return wrapped;
+  }
+
+  let installedFetch = wrapFetch(window.fetch);
+
+  try {
+    // A plain assignment can be silently clobbered later by a lazily-loaded
+    // polyfill, an analytics SDK or another extension, which would blind
+    // detection for the life of the document with no way to recover. The setter
+    // re-wraps whatever anyone assigns, so the hook always survives.
+    Object.defineProperty(window, 'fetch', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return installedFetch;
+      },
+      set(next) {
+        installedFetch = wrapFetch(next);
+        diag('FETCH_REWRAPPED', 'PAGE_REASSIGNED_FETCH', '');
+      }
     });
-  };
+  } catch (e) {
+    window.fetch = installedFetch;
+  }
 
   // Hook XMLHttpRequest
   const originalXOpen = XMLHttpRequest.prototype.open;

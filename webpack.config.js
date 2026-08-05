@@ -31,6 +31,7 @@ module.exports = {
     new webpack.DefinePlugin({
       'process.env.GITHUB_CLIENT_ID': JSON.stringify(process.env.GITHUB_CLIENT_ID || ''),
       'process.env.GITHUB_CLIENT_SECRET': JSON.stringify(process.env.GITHUB_CLIENT_SECRET || ''),
+      'process.env.TUFHUB_VERSION': JSON.stringify(require('./package.json').version),
     }),
     new CopyPlugin({
       patterns: [
