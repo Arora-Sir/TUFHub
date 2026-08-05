@@ -218,21 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
     staleBanner.classList.add('hidden');
   }
 
-  const healthDetails = document.getElementById('health-details');
-  const toggleDetailsBtn = document.getElementById('toggle-details-btn');
 
-  if (toggleDetailsBtn && healthDetails) {
-    toggleDetailsBtn.addEventListener('click', () => {
-      const isHidden = healthDetails.classList.contains('hidden');
-      if (isHidden) {
-        healthDetails.classList.remove('hidden');
-        toggleDetailsBtn.innerText = 'Hide details';
-      } else {
-        healthDetails.classList.add('hidden');
-        toggleDetailsBtn.innerText = 'Show details';
-      }
-    });
-  }
 
   async function renderHealth() {
     if (!healthBody) return;
@@ -308,12 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
       healthBody.appendChild(row('Failed', timeAgo(health.lastFailureAt), 'bad'));
     }
 
-    if (healthDetails) {
-      healthDetails.replaceChildren();
-      healthDetails.appendChild(row('Active tab', tabLabel, tone));
-      healthDetails.appendChild(row('Extension', `v${chrome.runtime.getManifest().version}`, 'neutral'));
-      healthDetails.appendChild(row('Diagnostic events', String(diag.length), 'neutral'));
-    }
+
   }
 
   if (copyDiagBtn) {
