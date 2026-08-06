@@ -1,6 +1,6 @@
 {
   "name": "tufhub",
-  "version": "1.2.2",
+  "version": "1.3.0",
   "description": "Automatically sync your TakeUForward (TUF+) accepted solutions to GitHub.",
   "main": "scripts/background.js",
   "scripts": {
