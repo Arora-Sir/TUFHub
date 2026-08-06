@@ -4,8 +4,15 @@
  */
 
 import { uploadToGitHub } from './uploader.js';
-import { decode } from '../util.js';
+import { decode, normalizeReadmeForCompare } from '../util.js';
 
+/**
+ * @returns {Promise<{contentSha,commitSha,htmlUrl}|null>} null when the
+ * generated content is identical to what's already on GitHub (after
+ * normalizing out the date stamp) - GitHub's Contents API does not skip
+ * identical-content PUTs on its own (confirmed against real commit history),
+ * so this check is what actually prevents a no-op commit on every call.
+ */
 export async function updateRootReadme(token, hook, mainTopic, subTopic, problemSlug, stats) {
   const readmePath = 'README.md';
   let sha = '';
@@ -30,6 +37,10 @@ export async function updateRootReadme(token, hook, mainTopic, subTopic, problem
 
   const updatedContent = generateRootReadmeMarkdown(stats);
 
+  if (existingContent && normalizeReadmeForCompare(updatedContent) === normalizeReadmeForCompare(existingContent)) {
+    return null;
+  }
+
   return uploadToGitHub(
     token,
     hook,
@@ -40,7 +51,7 @@ export async function updateRootReadme(token, hook, mainTopic, subTopic, problem
   );
 }
 
-function generateRootReadmeMarkdown(stats) {
+export function generateRootReadmeMarkdown(stats) {
   const solved = stats ? stats.solved || 0 : 0;
   const easy = stats ? stats.easy || 0 : 0;
   const medium = stats ? stats.medium || 0 : 0;

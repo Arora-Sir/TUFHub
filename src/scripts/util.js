@@ -96,6 +96,19 @@ export function deriveFileLabel(tabLabel, tabCount, ext) {
   return m ? `Solution-${m[1]}` : sanitizePathSegment(tabLabel);
 }
 
+/**
+ * generateRootReadmeMarkdown() stamps today's date into a "Last Synced" cell on
+ * every call, so a naive string comparison between freshly-generated and
+ * existing README content would always see a "difference" once a day rolls
+ * over - even with zero structural changes - defeating any skip-if-unchanged
+ * check. Strips that one cell out before comparing; the actual write (when one
+ * happens) still uses the real, un-normalized content with today's real date.
+ */
+export function normalizeReadmeForCompare(content) {
+  if (!content) return '';
+  return content.replace(/`\d{4}-\d{2}-\d{2}`/, '`DATE`');
+}
+
 export function encode(str) {
   return btoa(unescape(encodeURIComponent(str)));
 }

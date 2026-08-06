@@ -3,7 +3,9 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-import { decode } from '../util.js';
+import { decode, normalizeReadmeForCompare } from '../util.js';
+import { uploadToGitHub } from './uploader.js';
+import { generateRootReadmeMarkdown } from './rootReadme.js';
 
 export const DIAG_LIMIT = 50;
 
@@ -502,4 +504,258 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
   }
 
   return await getStats();
+}
+
+// -------------------------------------------------------------
+// True repo reconciliation (Sync button) - scans the actual git tree as
+// ground truth and rewrites the root README to match, instead of the cheap
+// path above which only mirrors whatever the README already says.
+// -------------------------------------------------------------
+const RECONCILE_COOLDOWN_MS = 60 * 1000;
+const RATE_LIMIT_FLOOR = 50;
+
+async function fetchTree(token, hook, branch) {
+  return fetch(`https://api.github.com/repos/${hook}/git/trees/${branch}?recursive=1`, {
+    headers: {
+      Authorization: `token ${token}`,
+      Accept: 'application/vnd.github.v3+json'
+    }
+  });
+}
+
+/**
+ * Reconstructs the display label for a file from its own name, matching
+ * exactly how deriveFileLabel() names files at sync time - so a name like
+ * "Optimal.java" round-trips to label "Optimal", and legacy "solution.java"
+ * round-trips to the pre-existing bare-extension label "JAVA".
+ */
+function labelFromFileName(fileName) {
+  const dot = fileName.lastIndexOf('.');
+  const base = dot > 0 ? fileName.slice(0, dot) : fileName;
+  const ext = dot > 0 ? fileName.slice(dot + 1) : '';
+  if (base.toLowerCase() === 'solution') return ext.toUpperCase() || 'FILE';
+  return base;
+}
+
+export async function reconcileRepoFromTree(token, hook) {
+  if (!token || !hook) return { ok: false, reason: 'error', message: 'Not connected.' };
+
+  const cooldownData = await safeGetStorage('tufhub_last_reconcile_at');
+  const lastReconcile = cooldownData.tufhub_last_reconcile_at || 0;
+  const sinceLast = Date.now() - lastReconcile;
+  if (sinceLast < RECONCILE_COOLDOWN_MS) {
+    return { ok: true, reason: 'cooldown', remainingMs: RECONCILE_COOLDOWN_MS - sinceLast };
+  }
+
+  let res;
+  try {
+    res = await fetchTree(token, hook, 'main');
+    if (!res.ok) res = await fetchTree(token, hook, 'master');
+  } catch (e) {
+    return { ok: false, reason: 'error', message: 'Network error reaching GitHub.' };
+  }
+
+  const rateRemaining = parseInt(res.headers.get('X-RateLimit-Remaining') || '', 10);
+  if (!Number.isNaN(rateRemaining) && rateRemaining < RATE_LIMIT_FLOOR) {
+    return { ok: false, reason: 'rate_limited' };
+  }
+
+  if (!res.ok) {
+    if (res.status === 401) return { ok: false, reason: 'auth', message: 'GitHub token invalid or expired.' };
+    if (res.status === 403) return { ok: false, reason: 'rate_limited' };
+    if (res.status === 404) return { ok: false, reason: 'not_found', message: 'Repository not found.' };
+    return { ok: false, reason: 'error', message: `GitHub returned HTTP ${res.status}.` };
+  }
+
+  let treeData;
+  try {
+    treeData = await res.json();
+  } catch (e) {
+    return { ok: false, reason: 'error', message: 'Could not parse repository tree.' };
+  }
+
+  if (treeData.truncated) {
+    return { ok: false, reason: 'truncated' };
+  }
+
+  const tree = Array.isArray(treeData.tree) ? treeData.tree : [];
+
+  // Group blobs by parent folder. A folder only counts as a real, currently-
+  // existing problem if it contains a README.md blob - every problem folder
+  // gets one via buildProblemReadme, which is a far more reliable signal than
+  // matching a filename substring (the old fallback's `includes('solution.')`
+  // check, which misses the v1.2.0 Solution-N/custom-name naming entirely).
+  const folders = new Map(); // folderPath -> { hasReadme, files: [{name, sha}] }
+  for (const item of tree) {
+    if (item.type !== 'blob') continue;
+    const parts = item.path.split('/');
+    if (parts.length < 2) continue; // root-level file, e.g. the repo's own README.md - not a problem folder
+    const fileName = parts[parts.length - 1];
+    const folderPath = parts.slice(0, -1).join('/');
+
+    if (!folders.has(folderPath)) folders.set(folderPath, { hasReadme: false, files: [] });
+    const entry = folders.get(folderPath);
+    if (fileName === 'README.md') {
+      entry.hasReadme = true;
+    } else {
+      entry.files.push({ name: fileName, sha: item.sha });
+    }
+  }
+
+  const currentStats = await getStats();
+  const existingProblems = currentStats.problems || {};
+  const reconciledProblems = {};
+  const reconciledShas = {};
+  const liveSlugs = new Set();
+
+  for (const [folderPath, entry] of folders) {
+    if (!entry.hasReadme || entry.files.length === 0) continue;
+    const parts = folderPath.split('/');
+    const slug = parts[parts.length - 1];
+    liveSlugs.add(slug);
+
+    const files = {};
+    const shas = {};
+    entry.files.forEach(f => {
+      const ext = f.name.includes('.') ? f.name.split('.').pop() : 'code';
+      files[f.name] = { ext, label: labelFromFileName(f.name) };
+      shas[f.name] = f.sha;
+    });
+
+    const cached = existingProblems[slug];
+    if (cached) {
+      // Known to this browser - trust its title/difficulty/mainTopic/subTopic
+      // (richer than anything derivable from the tree), refresh only the
+      // file listing to match what's actually there now.
+      reconciledProblems[slug] = {
+        ...cached,
+        folderPath,
+        files,
+        updatedAt: Date.now()
+      };
+    } else {
+      // Unknown to this browser (different profile, cleared storage).
+      // Placeholder metadata only - deliberately not fetching this folder's
+      // own README for exact title/difficulty, which would cost one extra
+      // API call per unknown folder and scale badly for a large gap.
+      reconciledProblems[slug] = {
+        title: slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        difficulty: 'Medium',
+        folderPath,
+        codeFileName: entry.files[0].name,
+        languages: {},
+        files,
+        updatedAt: Date.now()
+      };
+    }
+    reconciledShas[slug] = shas;
+  }
+
+  const solvedSlugs = Object.keys(reconciledProblems);
+  const counts = { solved: solvedSlugs.length, easy: 0, medium: 0, hard: 0 };
+  solvedSlugs.forEach(slug => {
+    const d = (reconciledProblems[slug].difficulty || 'medium').toLowerCase();
+    if (d.includes('easy')) counts.easy++;
+    else if (d.includes('hard')) counts.hard++;
+    else counts.medium++;
+  });
+
+  const hierarchy = {};
+  solvedSlugs.forEach(slug => {
+    const p = reconciledProblems[slug];
+    if (p.mainTopic) {
+      hierarchy[p.mainTopic] = hierarchy[p.mainTopic] || {};
+      hierarchy[p.mainTopic][p.subTopic || 'General'] = true;
+    }
+  });
+
+  // Purge dedup/debounce state for dropped slugs so a since-deleted-then-
+  // resubmitted problem can't be mistaken for an unchanged duplicate. Both
+  // maps are keyed `slug::fileName` (v1.2.0), so split on the separator
+  // rather than doing a plain key lookup.
+  const removedSlugs = Object.keys(existingProblems).filter(slug => !liveSlugs.has(slug));
+  const hashData = await safeGetStorage('tufhub_code_hashes');
+  const codeHashes = hashData.tufhub_code_hashes || {};
+  const purgedHashes = {};
+  Object.keys(codeHashes).forEach(key => {
+    const slug = key.split('::')[0];
+    if (liveSlugs.has(slug) || !removedSlugs.includes(slug)) purgedHashes[key] = codeHashes[key];
+  });
+
+  const purgedLastSyncTime = {};
+  Object.keys(currentStats.last_sync_time || {}).forEach(key => {
+    const slug = key.split('::')[0];
+    if (liveSlugs.has(slug) || !removedSlugs.includes(slug)) purgedLastSyncTime[key] = currentStats.last_sync_time[key];
+  });
+
+  const reconciledStats = {
+    ...currentStats,
+    ...counts,
+    shas: reconciledShas,
+    problems: reconciledProblems,
+    hierarchy,
+    last_sync_time: purgedLastSyncTime,
+    last_repo_scan: Date.now()
+  };
+
+  const generatedContent = generateRootReadmeMarkdown(reconciledStats);
+
+  let existingContent = '';
+  let readmeSha = '';
+  try {
+    const readmeRes = await fetch(`https://api.github.com/repos/${hook}/contents/README.md`, {
+      headers: {
+        Authorization: `token ${token}`,
+        Accept: 'application/vnd.github.v3+json'
+      }
+    });
+    if (readmeRes.ok) {
+      const json = await readmeRes.json();
+      existingContent = decode(json.content);
+      readmeSha = json.sha;
+    }
+  } catch (e) {
+    return { ok: false, reason: 'error', message: 'Could not read current README.' };
+  }
+
+  const unchanged = existingContent &&
+    normalizeReadmeForCompare(generatedContent) === normalizeReadmeForCompare(existingContent);
+
+  if (unchanged) {
+    await safeSetStorage({ stats: reconciledStats, tufhub_code_hashes: purgedHashes });
+    await safeSetStorage({ tufhub_last_reconcile_at: Date.now() });
+    return { ok: true, reason: 'unchanged', stats: reconciledStats };
+  }
+
+  let uploadResult;
+  try {
+    uploadResult = await uploadToGitHub(
+      token,
+      hook,
+      'README.md',
+      generatedContent,
+      'Update ROOT README.md problem index - TUFHub (manual sync)',
+      readmeSha
+    );
+  } catch (e) {
+    // Repo left untouched on a failed write - local stats intentionally NOT
+    // persisted here, so a retry starts from the same known-good state.
+    return { ok: false, reason: 'error', message: e && e.message };
+  }
+
+  // Persisted only after the write succeeds: if the worker is killed between
+  // the two, the repo (ground truth) is correct and local stats are merely
+  // stale, which the next reconcile fixes. The reverse order could leave
+  // local state claiming a sync that never actually reached GitHub.
+  await safeSetStorage({ stats: reconciledStats, tufhub_code_hashes: purgedHashes });
+  await safeSetStorage({ tufhub_last_reconcile_at: Date.now() });
+
+  return {
+    ok: true,
+    reason: 'synced',
+    stats: reconciledStats,
+    removedSlugs,
+    commitSha: uploadResult ? uploadResult.commitSha : '',
+    commitUrl: uploadResult ? uploadResult.htmlUrl : ''
+  };
 }

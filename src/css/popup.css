@@ -201,6 +201,24 @@ html, body {
   border: 1px solid var(--card-border);
 }
 
+/* Sync button shows dynamic status text ("Wait 45s", "Rate limited", etc.) of
+   varying length. Without flex-shrink/min-width overrides, a flex item's
+   default min-width is its content's unbroken width, which let a long label
+   force this whole row (and the card around it) to stretch wider than the
+   popup. Fixed width + wrapping keeps the row stable regardless of message
+   length - it grows at most a line taller, never wider. */
+#sync-repo-btn {
+  flex: 0 0 auto;
+  width: 108px;
+  min-width: 0;
+  padding: 8px 6px;
+  font-size: 0.82rem;
+  line-height: 1.25;
+  white-space: normal;
+  text-align: center;
+  word-break: break-word;
+}
+
 .danger-btn {
   background: transparent;
   color: var(--hard-color);

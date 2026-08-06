@@ -19,7 +19,7 @@
 
 <p align="center">
   <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" rel="noopener noreferrer">
-    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.2.0-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.2.2-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
   </a>
   <a href="https://github.com/Arora-Sir/TUFHub/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
@@ -91,7 +91,7 @@ Commits code solutions with clean folder hierarchy, language extensions, and for
 - **SPA Route Protection**: Automatically re-arms content scripts on TUF+ single-page navigation (no manual refresh needed).
 - **Problem Statement README**: Generates per-problem `README.md` with difficulty and complexity analysis.
 - **Master Repository Index**: Maintains a master `README.md` index table sorted by category and difficulty.
-- **Live Extension Popup**: Tracks Solved, Easy, Medium, Hard counts with a 1-click **Sync** button.
+- **Live Extension Popup**: Tracks Solved, Easy, Medium, Hard counts with a 1-click **Sync** button that reconciles against the actual repository tree - if you delete a problem folder on GitHub, Sync removes it from the master index too, not just from your local view.
 - **Sync Health Panel**: Real-time tab hook status, last successful commit link, and a 50-event diagnostic log in the popup.
 - **Conflict-Safe Commits**: Sequential queue prevents Git 409 commit conflicts.
 - **Offline Queue**: Queues syncs when offline and flushes automatically when the connection is restored.
@@ -200,6 +200,9 @@ No. Once a problem has 2+ open tabs in TUF+, each accepted submission syncs as i
 
 **Q: My stats show 0 after reinstalling.**  
 Click the **Sync** button in the popup to re-scan your repository and restore your stats instantly.
+
+**Q: I deleted a problem folder on GitHub. Will the master README update?**  
+Yes - click **Sync**. It reads the actual current state of your repository (not just your local cache) and rewrites the master index to match, removing anything no longer there. There's a short cooldown between syncs, and it only commits when something has genuinely changed, so repeated clicks won't spam your commit history.
 
 **Q: Can I use an existing repository?**  
 Yes. Enter the name of your existing repo during setup; TUFHub will connect to it and scan existing solutions.

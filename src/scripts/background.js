@@ -3,6 +3,8 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
+import { reconcileRepoFromTree } from './tuf/stats.js';
+
 const DEFAULT_CLIENT_ID = ''; // User provides their own OAuth Client ID via the welcome page
 
 function applyBadgeState(badgeData) {
@@ -156,6 +158,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       } else {
         sendResponse({ status: 'no_tab' });
       }
+    });
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.type === 'RECONCILE_REPO') {
+    // Runs here, not in the popup: a popup page is destroyed the instant it
+    // closes, which would kill an in-flight fetch mid-operation - possibly
+    // after the tree read but before the README write, leaving local stats
+    // and the repo inconsistent. The service worker outlives the popup for
+    // the duration of this handler.
+    chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], (res) => {
+      reconcileRepoFromTree(res.tufhub_token, res.tufhub_hook)
+        .then((result) => {
+          chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          sendResponse(result);
+        })
+        .catch((err) => {
+          const result = { ok: false, reason: 'error', message: err && err.message };
+          chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          sendResponse(result);
+        });
     });
     return true; // Keep message channel open for async response
   }

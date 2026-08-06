@@ -60,21 +60,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Manual Sync Repo Button Handler (force: true)
+  // Manual Sync Repo Button Handler - reconciles against the actual repo tree
+  // (adds/removes/renames included), not just a local-stats refresh.
+  // Kept short and wrap-friendly on purpose - this button has a fixed width
+  // (popup.css:#sync-repo-btn) so it can grow a line taller but never wider.
+  const SYNC_REASON_LABELS = {
+    cooldown: (r) => `Wait ${Math.ceil(r.remainingMs / 1000)}s`,
+    unchanged: () => '✓ In sync',
+    synced: (r) => (r.removedSlugs && r.removedSlugs.length) ? `✓ Synced (-${r.removedSlugs.length})` : '✓ Synced',
+    rate_limited: () => 'Rate limited',
+    auth: () => 'Reconnect',
+    not_found: () => 'Repo not found',
+    truncated: () => 'Too large',
+    error: () => 'Sync failed'
+  };
+
   if (syncRepoBtn) {
-    syncRepoBtn.addEventListener('click', async () => {
-      chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], async (res) => {
-        if (res.tufhub_token && res.tufhub_hook) {
-          syncRepoBtn.innerText = '⏳';
-          syncRepoBtn.disabled = true;
-          const updatedStats = await scanAndSyncRepoStats(res.tufhub_token, res.tufhub_hook, true);
-          if (updatedStats) renderStats(updatedStats);
-          syncRepoBtn.innerText = '✓';
-          setTimeout(() => {
-            syncRepoBtn.innerText = '↻ Sync';
-            syncRepoBtn.disabled = false;
-          }, 1500);
-        }
+    syncRepoBtn.addEventListener('click', () => {
+      syncRepoBtn.innerText = '⏳';
+      syncRepoBtn.disabled = true;
+
+      chrome.runtime.sendMessage({ type: 'RECONCILE_REPO' }, (result) => {
+        const r = result || { reason: 'error' };
+        if (r.stats) renderStats(r.stats);
+
+        const label = (SYNC_REASON_LABELS[r.reason] || SYNC_REASON_LABELS.error)(r);
+        syncRepoBtn.innerText = label;
+
+        // Cooldown is informational, not an error state - no extended hold.
+        const holdMs = r.reason === 'cooldown' ? 1500 : 2500;
+        setTimeout(() => {
+          syncRepoBtn.innerText = '↻ Sync';
+          syncRepoBtn.disabled = false;
+        }, holdMs);
       });
     });
   }
