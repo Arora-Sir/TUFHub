@@ -19,7 +19,7 @@
 
 <p align="center">
   <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" rel="noopener noreferrer">
-    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.1.0-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.2.0-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
   </a>
   <a href="https://github.com/Arora-Sir/TUFHub/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
@@ -83,6 +83,7 @@ Commits code solutions with clean folder hierarchy, language extensions, and for
 ## ✨ Features
 
 - **Auto-Sync on 100% Pass**: Only commits accepted solutions; ignores failing attempts.
+- **Multi-Tab Solution Sync**: Keep separate TUF+ tabs for bruteforce/better/optimal? Each open tab (2+) syncs as its own file instead of overwriting the last - `Solution-1.ext`/`Solution-2.ext` for default tabs, or your own tab name (e.g. `Optimal.java`) if you renamed it.
 - **Verifiable Sync Proof**: Success toasts show the short commit SHA and a clickable `[View commit]` link directly to GitHub.
 - **Toolbar Status Badges**: Toolbar icon shows Green `OK` on success, Red `!` on error, and Amber count for queued offline syncs.
 - **Multi-Category Organization**: Categorizes problems under DSA, SQL, Aptitude, and Mock Tests.
@@ -107,6 +108,7 @@ TUF-Solutions/
 │   ├── Arrays/0001-set-matrix-zeroes/ (solution.cpp, README.md)
 │   ├── Linked-List/
 │   ├── Recursion/
+│   │   └── 0012-letter-combinations/ (Solution-1.java, Optimal.java, README.md)
 │   └── ...
 ├── SQL/
 │   └── Joins/
@@ -114,6 +116,9 @@ TUF-Solutions/
 ├── Mock-Tests/
 └── README.md   <-- Master Index
 ```
+
+> Problems solved with a single tab keep the plain `solution.<ext>` naming above. A
+> problem folder only gets multiple files once you've used 2+ tabs in TUF+ for it.
 
 ---
 
@@ -189,6 +194,9 @@ No. TUFHub syncs strictly when 100% test cases pass.
 
 **Q: What if I submit the same problem in another language?**  
 TUFHub adds the new language file alongside the existing solution in the same folder and updates the master index.
+
+**Q: I keep separate tabs for bruteforce/optimal in TUF+. Will they overwrite each other?**  
+No. Once a problem has 2+ open tabs in TUF+, each accepted submission syncs as its own file - `Solution-1.ext`/`Solution-2.ext` for default tab names, or your own renamed tab (e.g. `Optimal.java`) verbatim. A problem solved with just one tab keeps the plain `solution.<ext>` naming.
 
 **Q: My stats show 0 after reinstalling.**  
 Click the **Sync** button in the popup to re-scan your repository and restore your stats instantly.
