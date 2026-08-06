@@ -162,7 +162,11 @@ export async function updateStats(difficulty, problemSlug, fileShas, mainTopic =
     ...fileShas
   };
 
-  stats.last_sync_time[problemSlug] = Date.now();
+  // Keyed by slug+file (matching isDebounced/isCodeIdentical below) so this
+  // dual-detection-channel dedup guard doesn't throttle a genuinely different
+  // file just because another tab of the same problem synced moments earlier.
+  const syncTimeKey = problemMeta.codeFileName ? `${problemSlug}::${problemMeta.codeFileName}` : problemSlug;
+  stats.last_sync_time[syncTimeKey] = Date.now();
 
   if (!stats.hierarchy) stats.hierarchy = {};
   stats.hierarchy[mainTopic] = stats.hierarchy[mainTopic] || {};
@@ -171,10 +175,26 @@ export async function updateStats(difficulty, problemSlug, fileShas, mainTopic =
   if (!stats.problems) stats.problems = {};
   
   const existingProb = stats.problems[problemSlug] || {};
+
+  // Legacy field, kept for scanAndSyncRepoStats' repo-reconciliation path and any
+  // stats predating the per-file `files` map below - keyed by extension, so it
+  // still only ever holds the LAST file of a given language (as before).
   const languages = existingProb.languages || {};
   if (problemMeta.codeFileName) {
     const ext = problemMeta.codeFileName.split('.').pop() || 'code';
     languages[ext] = problemMeta.codeFileName;
+  }
+
+  // Keyed by filename, not extension, so two same-language tabs ("Brute.java" +
+  // "Optimal.java") both survive instead of the second silently overwriting the
+  // first in the root README's Solution(s) column.
+  const files = { ...(existingProb.files || {}) };
+  if (problemMeta.codeFileName) {
+    const ext = problemMeta.codeFileName.split('.').pop() || 'code';
+    files[problemMeta.codeFileName] = {
+      ext,
+      label: problemMeta.fileLabel || ext.toUpperCase()
+    };
   }
 
   stats.problems[problemSlug] = {
@@ -185,6 +205,7 @@ export async function updateStats(difficulty, problemSlug, fileShas, mainTopic =
     codeFileName: problemMeta.codeFileName || existingProb.codeFileName || 'solution.cpp',
     folderPath: problemMeta.folderPath || existingProb.folderPath || `${mainTopic}/${subTopic}/${problemSlug}`,
     languages,
+    files,
     updatedAt: Date.now()
   };
 
@@ -201,25 +222,33 @@ function generateHashCode(str) {
   return hash.toString(36);
 }
 
-export async function isCodeIdentical(slug, newCode) {
-  const hash = generateHashCode(newCode || '');
-  const storage = await safeGetStorage('tufhub_code_hashes');
-  const hashes = storage.tufhub_code_hashes || {};
-  return hashes[slug] === hash;
+// Keyed by slug + filename, not slug alone - once a problem can have multiple
+// solution files (per-tab sync), a slug-only key would let syncing Tab-2's code
+// corrupt the "did Tab-1 change" check for Tab-1's own file.
+function codeHashKey(slug, fileName) {
+  return `${slug}::${fileName}`;
 }
 
-export async function updateCodeHash(slug, newCode) {
+export async function isCodeIdentical(slug, fileName, newCode) {
   const hash = generateHashCode(newCode || '');
   const storage = await safeGetStorage('tufhub_code_hashes');
   const hashes = storage.tufhub_code_hashes || {};
-  hashes[slug] = hash;
+  return hashes[codeHashKey(slug, fileName)] === hash;
+}
+
+export async function updateCodeHash(slug, fileName, newCode) {
+  const hash = generateHashCode(newCode || '');
+  const storage = await safeGetStorage('tufhub_code_hashes');
+  const hashes = storage.tufhub_code_hashes || {};
+  hashes[codeHashKey(slug, fileName)] = hash;
   await safeSetStorage({ tufhub_code_hashes: hashes });
 }
 
 
-export async function isDebounced(problemSlug, cooldownMs = 5000) {
+export async function isDebounced(problemSlug, fileName, cooldownMs = 5000) {
   const stats = await getStats();
-  const lastTime = stats.last_sync_time ? stats.last_sync_time[problemSlug] : null;
+  const key = fileName ? `${problemSlug}::${fileName}` : problemSlug;
+  const lastTime = stats.last_sync_time ? stats.last_sync_time[key] : null;
   if (lastTime && (Date.now() - lastTime < cooldownMs)) {
     return true;
   }

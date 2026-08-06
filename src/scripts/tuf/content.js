@@ -24,7 +24,7 @@ import {
   updateCodeHash
 } from './stats.js';
 import { showToast } from './toast.js';
-import { LANGUAGE_MAP, convertToSlug, addLeadingZeros } from '../util.js';
+import { LANGUAGE_MAP, convertToSlug, addLeadingZeros, deriveCodeFileName, deriveFileLabel } from '../util.js';
 
 // Wall-clock budget for the DOM backup watcher. Deliberately generous: a cold
 // judge after an idle period routinely takes far longer than the 15s the
@@ -32,10 +32,20 @@ import { LANGUAGE_MAP, convertToSlug, addLeadingZeros } from '../util.js';
 // this is measured against Date.now() rather than a poll count.
 const DOM_WATCH_MS = 5 * 60 * 1000;
 
-let lastSyncTimestamp = 0;
+// Keyed by `${url}::${tabLabel}`, not a single global timestamp - a bare global
+// would block a genuinely different tab's verdict if two tabs' submissions
+// resolve within 5s of each other. Still guards its original purpose: the
+// interceptor's CustomEvent and the DOM watcher's own poll both firing for the
+// exact same physical verdict.
+let lastSyncTimestamps = {};
 let isUserSubmitting = false;
 let submitTimeout = null;
 let verdictInterval = null;
+// Captured at Submit-click time (registerSubmitIntent) and read when the DOM
+// watcher's own verdict poll fires later - mirrors the interceptor's arm-time
+// capture in the MAIN world, so this backup channel doesn't misattribute a tab
+// switch that happens while a slow judge is still running.
+let armedTabInfo = { label: '', count: 0 };
 
 function extensionVersion() {
   try {
@@ -88,19 +98,44 @@ async function onAcceptedSubmission(event) {
     data.code = code;
   }
 
-  // Deduplicate syncs within 5 seconds (interceptor + DOM watcher can both fire)
-  if (Date.now() - lastSyncTimestamp < 5000) {
+  // Deduplicate syncs within 5 seconds (interceptor + DOM watcher can both fire
+  // for the same verdict) without blocking a different tab's verdict landing
+  // in the same window.
+  const syncKey = `${data.url || ''}::${data.tabLabel || ''}`;
+  if (Date.now() - (lastSyncTimestamps[syncKey] || 0) < 5000) {
     console.log('[TUFHub Content Script] ⏳ Duplicate event ignored (within 5s threshold).');
     await pushDiag('DROPPED', 'DUPLICATE_WITHIN_5S', 'Both detection channels fired for the same verdict.');
     return;
   }
 
-  lastSyncTimestamp = Date.now();
+  lastSyncTimestamps[syncKey] = Date.now();
   isUserSubmitting = false;
   clearTimeout(submitTimeout);
   clearInterval(verdictInterval);
 
   await executeGitHubSync(data);
+}
+
+/**
+ * ISOLATED-world duplicate of the interceptor's tab scrape (MAIN world code
+ * can't be imported here). See interceptor.js:getActiveTabInfo for the
+ * selector rationale - keyed off the "Close <label>" aria-label, active tab
+ * distinguished by its persistent (not hover-only) text-color class.
+ */
+function getActiveTabInfoDOM() {
+  try {
+    const closeButtons = Array.from(document.querySelectorAll('button[aria-label^="Close "]'));
+    if (closeButtons.length === 0) return { label: '', count: 0 };
+    const containers = closeButtons.map(btn => ({
+      label: (btn.getAttribute('aria-label') || '').replace(/^Close\s+/i, '').trim(),
+      container: btn.parentElement
+    })).filter(c => c.label && c.container);
+    if (containers.length === 0) return { label: '', count: 0 };
+    const active = containers.find(c => /text-black|dark:text-white/.test(c.container.className || ''));
+    return { label: (active || containers[0]).label, count: containers.length };
+  } catch (e) {
+    return { label: '', count: 0 };
+  }
 }
 
 function extractCodeFromMonacoFallback() {
@@ -154,18 +189,32 @@ async function executeGitHubSync(data) {
       return { ok: false, reasonCode: 'EXTENSION_RELOADED' };
     }
 
-    const debounced = await isDebounced(slug, 5000);
+    // Hoisted above both dedup checks below: isDebounced and isCodeIdentical are
+    // both per-*file* now, not per-problem, since a problem can have multiple
+    // valid target files once 2+ tabs exist. tabLabel/tabCount come from the
+    // interceptor's armState (captured at arm-time) or the DOM watcher's own
+    // scrape - either way, count < 2 means deriveCodeFileName falls back to the
+    // legacy solution.<ext>.
+    const ext = LANGUAGE_MAP[(data.language || '').toLowerCase()] || (routeInfo.category === 'SQL' ? 'sql' : 'cpp');
+    const codeFileName = deriveCodeFileName(data.tabLabel, data.tabCount, ext);
+
+    // Keyed by slug+file, not slug alone - otherwise submitting Tab-2 within 5s
+    // of Tab-1 gets silently skipped as "already synced" even though it's a
+    // distinct, wanted file. This guard exists to stop the interceptor and the
+    // DOM-watcher backup channel from double-syncing the SAME verdict, not to
+    // throttle genuinely different submissions.
+    const debounced = await isDebounced(slug, codeFileName, 5000);
     if (debounced) {
-      console.log(`[TUFHub Sync Engine] ⏳ Cooldown active for ${slug}. Skipping duplicate.`);
-      await pushDiag('SKIPPED', 'COOLDOWN', slug);
+      console.log(`[TUFHub Sync Engine] ⏳ Cooldown active for ${slug}/${codeFileName}. Skipping duplicate.`);
+      await pushDiag('SKIPPED', 'COOLDOWN', `${slug}/${codeFileName}`);
       showToast(`Already synced ${rawTitle} recently.`, 'info');
       return { ok: true, reasonCode: 'COOLDOWN' };
     }
 
-    const identical = await isCodeIdentical(slug, data.code);
+    const identical = await isCodeIdentical(slug, codeFileName, data.code);
     if (identical) {
-      console.log(`[TUFHub Sync Engine] ⏳ Code is exactly the same for ${slug}. Skipping duplicate sync.`);
-      await pushDiag('SKIPPED', 'CODE_UNCHANGED', slug);
+      console.log(`[TUFHub Sync Engine] ⏳ Code is exactly the same for ${slug}/${codeFileName}. Skipping duplicate sync.`);
+      await pushDiag('SKIPPED', 'CODE_UNCHANGED', `${slug}/${codeFileName}`);
       showToast(`Exact same code already synced for ${rawTitle}.`, 'info');
       return { ok: true, reasonCode: 'CODE_UNCHANGED' };
     }
@@ -190,9 +239,6 @@ async function executeGitHubSync(data) {
 
     // Auto-reconcile local stats with GitHub repo state so deleted repo items are purged
     const stats = (await scanAndSyncRepoStats(token, hook)) || (await getStats());
-
-    const ext = LANGUAGE_MAP[(data.language || '').toLowerCase()] || (routeInfo.category === 'SQL' ? 'sql' : 'cpp');
-    const codeFileName = `solution.${ext}`;
 
     const problemReadmeContent = buildProblemReadme({
       title: rawTitle,
@@ -243,6 +289,7 @@ async function executeGitHubSync(data) {
     }, mainCategory, mainTopic, {
       title: rawTitle,
       codeFileName,
+      fileLabel: deriveFileLabel(data.tabLabel, data.tabCount, ext),
       folderPath
     });
 
@@ -280,7 +327,7 @@ async function executeGitHubSync(data) {
       showToast(toastMessage, 'success');
     }
 
-    await updateCodeHash(slug, data.code);
+    await updateCodeHash(slug, codeFileName, data.code);
 
     return { ok: true, reasonCode: '' };
 
@@ -393,6 +440,7 @@ function registerSubmitIntent() {
   try {
     window.dispatchEvent(new CustomEvent('TUFHUB_USER_SUBMIT_CLICKED'));
   } catch (e) {}
+  armedTabInfo = getActiveTabInfoDOM();
   updateHealth({ lastSubmitIntentAt: Date.now(), lastSubmitIntentUrl: window.location.href });
   triggerDOMVerdictWatcher();
 }
@@ -427,8 +475,9 @@ function triggerDOMVerdictWatcher() {
     clearInterval(verdictInterval);
     isUserSubmitting = false;
 
-    if (Date.now() - lastSyncTimestamp > 5000) {
-      lastSyncTimestamp = Date.now();
+    const domSyncKey = `${window.location.href}::${armedTabInfo.label || ''}`;
+    if (Date.now() - (lastSyncTimestamps[domSyncKey] || 0) > 5000) {
+      lastSyncTimestamps[domSyncKey] = Date.now();
       const code = extractCodeFromMonacoFallback();
       const titleElem = document.querySelector('h1, [class*="title"], [class*="problem-name"]');
       const diffElem = document.querySelector('[class*="difficulty"], [class*="badge"]');
@@ -442,7 +491,9 @@ function triggerDOMVerdictWatcher() {
         difficulty: diffElem ? diffElem.innerText.trim() : 'Medium',
         description: '',
         url: window.location.href,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        tabLabel: armedTabInfo.label,
+        tabCount: armedTabInfo.count
       }).catch((e) => console.error('[TUFHub Sync Engine] ❌ DOM watcher sync error:', e));
     }
   }, 1000);

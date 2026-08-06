@@ -83,20 +83,34 @@ function generateRootReadmeMarkdown(stats) {
         : '🟡 Medium';
 
       let solutionLinks = '';
-      const languages = p.languages || {};
-      const langExts = Object.keys(languages).filter(k => languages[k] && languages[k] !== 'undefined');
+      const files = p.files || {};
+      const fileNames = Object.keys(files).filter(fn => fn && files[fn]);
 
-      if (langExts.length > 0) {
-        solutionLinks = langExts.map(ext => {
-          const fileName = languages[ext];
+      if (fileNames.length > 0) {
+        // Per-file map (from a sync since the multi-tab feature shipped) - one
+        // link per actual file, labeled with the tab's own name so a "Brute" and
+        // "Optimal" pair of same-language files don't collapse into one link.
+        solutionLinks = fileNames.map(fileName => {
           const fileUrl = `${folderUrl}/${encodeURIComponent(fileName)}`;
-          return `[${ext.toUpperCase()}](${fileUrl})`;
+          return `[${files[fileName].label}](${fileUrl})`;
         }).join(' ');
       } else {
-        const safeFile = (p.codeFileName && p.codeFileName !== 'undefined') ? p.codeFileName : 'solution.java';
-        const ext = safeFile.split('.').pop() || 'java';
-        const fileUrl = `${folderUrl}/${encodeURIComponent(safeFile)}`;
-        solutionLinks = `[${ext.toUpperCase()}](${fileUrl})`;
+        // Fallback for stats predating the `files` map (pre-multi-tab sync data).
+        const languages = p.languages || {};
+        const langExts = Object.keys(languages).filter(k => languages[k] && languages[k] !== 'undefined');
+
+        if (langExts.length > 0) {
+          solutionLinks = langExts.map(ext => {
+            const fileName = languages[ext];
+            const fileUrl = `${folderUrl}/${encodeURIComponent(fileName)}`;
+            return `[${ext.toUpperCase()}](${fileUrl})`;
+          }).join(' ');
+        } else {
+          const safeFile = (p.codeFileName && p.codeFileName !== 'undefined') ? p.codeFileName : 'solution.java';
+          const ext = safeFile.split('.').pop() || 'java';
+          const fileUrl = `${folderUrl}/${encodeURIComponent(safeFile)}`;
+          solutionLinks = `[${ext.toUpperCase()}](${fileUrl})`;
+        }
       }
 
       const categoryCell = resolveCategoryAndTopic(p);

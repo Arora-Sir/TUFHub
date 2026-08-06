@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "TUFHub - TakeUForward (TUF) GitHub Sync",
   "short_name": "TUFHub",
-  "version": "1.1.0",
-  "version_name": "1.1.0",
+  "version": "1.2.0",
+  "version_name": "1.2.0",
   "minimum_chrome_version": "111",
   "description": "Automatically sync your TakeUForward (TUF+) accepted solutions to GitHub.",
   "permissions": [

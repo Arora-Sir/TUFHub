@@ -72,6 +72,30 @@ export function sanitizePathSegment(segment) {
   return cleaned;
 }
 
+/**
+ * Filename for a synced solution. Only diverges from the legacy `solution.<ext>`
+ * once a problem actually has 2+ open tabs - the moment the single-file scheme
+ * breaks down. Un-renamed default tabs ("Tab-1") map to a cleaner "Solution-1";
+ * a renamed tab ("Optimal") is used verbatim so intent isn't lost.
+ */
+export function deriveCodeFileName(tabLabel, tabCount, ext) {
+  if (!tabCount || tabCount < 2 || !tabLabel) return `solution.${ext}`;
+  const m = tabLabel.match(/^Tab-(\d+)$/i);
+  const base = m ? `Solution-${m[1]}` : sanitizePathSegment(tabLabel);
+  return `${base}.${ext}`;
+}
+
+/**
+ * Display label for the same file in the root README's Solution(s) column.
+ * Single-tab problems keep the existing bare-extension label (e.g. "JAVA") for
+ * visual continuity with every already-synced repo.
+ */
+export function deriveFileLabel(tabLabel, tabCount, ext) {
+  if (!tabCount || tabCount < 2 || !tabLabel) return ext.toUpperCase();
+  const m = tabLabel.match(/^Tab-(\d+)$/i);
+  return m ? `Solution-${m[1]}` : sanitizePathSegment(tabLabel);
+}
+
 export function encode(str) {
   return btoa(unescape(encodeURIComponent(str)));
 }

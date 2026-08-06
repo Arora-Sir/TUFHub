@@ -48,6 +48,31 @@
     }
   }
 
+  /**
+   * TUF+'s multi-tab editor (up to 4 tabs per problem) has no ARIA tab semantics -
+   * just styled divs. The `Close <label>` aria-label is a more stable anchor than
+   * the exact Tailwind class soup for finding tabs; "which one is active" still
+   * needs a class heuristic (confirmed live: active = text-black/dark:text-white,
+   * inactive = text-zinc-500/dark:text-zinc-500, only on hover).
+   * Returns { label: '', count: 0 } on any scrape failure so callers degrade to
+   * the legacy single-file behavior rather than guess at a wrong filename.
+   */
+  function getActiveTabInfo() {
+    try {
+      const closeButtons = Array.from(document.querySelectorAll('button[aria-label^="Close "]'));
+      if (closeButtons.length === 0) return { label: '', count: 0 };
+      const containers = closeButtons.map(btn => ({
+        label: (btn.getAttribute('aria-label') || '').replace(/^Close\s+/i, '').trim(),
+        container: btn.parentElement
+      })).filter(c => c.label && c.container);
+      if (containers.length === 0) return { label: '', count: 0 };
+      const active = containers.find(c => /text-black|dark:text-white/.test(c.container.className || ''));
+      return { label: (active || containers[0]).label, count: containers.length };
+    } catch (e) {
+      return { label: '', count: 0 };
+    }
+  }
+
   function diag(stage, reasonCode, detail, persist = true) {
     try {
       console.log(`[TUFHub Interceptor] ${stage}${reasonCode ? ' :: ' + reasonCode : ''}`, detail || '');
@@ -86,16 +111,29 @@
 
   function arm(source) {
     markAlive();
+    // Captured now, not at verdict-time: avoids the race where a slow judge
+    // resolves after the user has already switched to a different tab.
+    //
+    // arm() fires twice per real submission - once on the click (before TUF's
+    // own handler runs) and again when the POST /judge/submit request is
+    // observed (after it runs, by which point TUF may have transiently hidden
+    // or disabled the tab bar for the "submitting" state). A scrape failure on
+    // that second call must not clobber the good data the first call already
+    // captured, or every multi-tab sync silently falls back to solution.<ext>.
+    const tabInfo = getActiveTabInfo();
+    const sameProblem = armState.slug === currentProblemSlug();
     armState = {
       armed: true,
       epoch: (armState.epoch || 0) + 1,
       at: Date.now(),
-      slug: currentProblemSlug()
+      slug: currentProblemSlug(),
+      tabLabel: tabInfo.count > 0 ? tabInfo.label : (sameProblem ? armState.tabLabel : ''),
+      tabCount: tabInfo.count > 0 ? tabInfo.count : (sameProblem ? armState.tabCount : 0)
     };
     // A fresh intent must never be suppressed by the previous verdict's id.
     lastProcessedSubmissionId = '';
     saveArmState();
-    diag('ARMED', source, `epoch=${armState.epoch} slug=${armState.slug}`);
+    diag('ARMED', source, `epoch=${armState.epoch} slug=${armState.slug} tab=${armState.tabLabel}(${armState.tabCount})`);
   }
 
   function disarm(reason) {
@@ -349,7 +387,9 @@
         difficulty,
         description,
         url: window.location.href,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        tabLabel: armState.tabLabel || '',
+        tabCount: armState.tabCount || 0
       }
     }));
   }
