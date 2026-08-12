@@ -3,19 +3,17 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-import { uploadToGitHub } from './uploader.js';
 import { decode, normalizeReadmeForCompare } from '../util.js';
 
 /**
- * @returns {Promise<{contentSha,commitSha,htmlUrl}|null>} null when the
+ * @returns {Promise<{path: string, content: string}|null>} null when the
  * generated content is identical to what's already on GitHub (after
- * normalizing out the date stamp) - GitHub's Contents API does not skip
- * identical-content PUTs on its own (confirmed against real commit history),
- * so this check is what actually prevents a no-op commit on every call.
+ * normalizing out the date stamp) - the caller folds the returned entry into
+ * a single multi-file commit, so this check is what keeps an unchanged index
+ * out of that commit rather than preventing a standalone no-op PUT.
  */
-export async function updateRootReadme(token, hook, mainTopic, subTopic, problemSlug, stats) {
+export async function buildRootReadmeFile(token, hook, stats) {
   const readmePath = 'README.md';
-  let sha = '';
   let existingContent = '';
 
   try {
@@ -28,7 +26,6 @@ export async function updateRootReadme(token, hook, mainTopic, subTopic, problem
 
     if (res.ok) {
       const json = await res.json();
-      sha = json.sha;
       existingContent = decode(json.content);
     }
   } catch (e) {
@@ -41,14 +38,7 @@ export async function updateRootReadme(token, hook, mainTopic, subTopic, problem
     return null;
   }
 
-  return uploadToGitHub(
-    token,
-    hook,
-    readmePath,
-    updatedContent,
-    `Update ROOT README.md problem index - TUFHub`,
-    sha
-  );
+  return { path: readmePath, content: updatedContent };
 }
 
 export function generateRootReadmeMarkdown(stats) {

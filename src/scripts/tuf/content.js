@@ -5,12 +5,13 @@
  */
 
 import { buildProblemReadme } from './readme.js';
-import { updateRootReadme } from './rootReadme.js';
-import { uploadToGitHub } from './uploader.js';
+import { buildRootReadmeFile } from './rootReadme.js';
+import { commitFiles } from './uploader.js';
 import { resolveHierarchy } from './router.js';
 import {
   getStats,
   updateStats,
+  computeUpdatedStats,
   scanAndSyncRepoStats,
   isDebounced,
   safeGetStorage,
@@ -247,65 +248,51 @@ async function executeGitHubSync(data) {
       url: data.url || window.location.href
     });
 
-    const existingShas = stats.shas[slug] || {};
-
     console.log(`[TUFHub Sync Engine] 📦 File: ${folderPath}/${codeFileName}`);
-    console.log('[TUFHub Sync Engine] 📤 Sequential upload chain initiated for repo:', hook);
-
-    // 1. Upload solution code FIRST
-    const codeRes = await uploadToGitHub(
-      token,
-      hook,
-      `${folderPath}/${codeFileName}`,
-      data.code,
-      `Add solution for ${rawTitle} - TUFHub`,
-      existingShas[codeFileName] || ''
-    );
-    const codeSha = codeRes.contentSha || codeRes;
-    const commitSha = codeRes.commitSha || '';
-    const htmlUrl = codeRes.htmlUrl || '';
-    console.log('[TUFHub Sync Engine] ✅ Solution code uploaded successfully!');
-
-    // 2. Upload problem README SECOND
-    const readmeRes = await uploadToGitHub(
-      token,
-      hook,
-      `${folderPath}/README.md`,
-      problemReadmeContent,
-      `Create README for ${rawTitle} - TUFHub`,
-      existingShas['README.md'] || ''
-    );
-    const readmeSha = readmeRes.contentSha || readmeRes;
-    console.log('[TUFHub Sync Engine] ✅ Problem README uploaded successfully!');
+    console.log('[TUFHub Sync Engine] 📤 Building single atomic commit for repo:', hook);
 
     const mainCategory = routeInfo.category || 'DSA';
     const mainTopic = routeInfo.mainTopic || 'General';
-    const subTopic = routeInfo.subTopic || 'General';
-
-    // 3. Update local stats
-    const updatedStats = await updateStats(data.difficulty, slug, {
-      [codeFileName]: codeSha,
-      'README.md': readmeSha
-    }, mainCategory, mainTopic, {
+    const problemMeta = {
       title: rawTitle,
       codeFileName,
       fileLabel: deriveFileLabel(data.tabLabel, data.tabCount, ext),
       folderPath
-    });
+    };
 
-    // 4. Update root README index THIRD
-    try {
-      await updateRootReadme(token, hook, mainTopic, subTopic, slug, updatedStats);
-      console.log('[TUFHub Sync Engine] ✅ Root README updated successfully!');
-    } catch (rootErr) {
-      console.warn('[TUFHub Sync Engine] ⚠️ Root README update warning (non-critical):', rootErr);
-      await pushDiag('WARNING', 'ROOT_README_FAILED', rootErr && rootErr.message);
-    }
+    // Preview what stats WOULD look like after this sync (pure, no storage
+    // write) so the root README's content can be decided and, if it changed,
+    // folded into the same commit as the solution file and problem README -
+    // real local stats are only persisted below once the commit has landed.
+    const previewStats = computeUpdatedStats(stats, data.difficulty, slug, {}, mainCategory, mainTopic, problemMeta);
+    const rootReadmeFile = await buildRootReadmeFile(token, hook, previewStats);
 
-    // 5. Notify background worker to trigger success badge
+    const files = [
+      { path: `${folderPath}/${codeFileName}`, content: data.code },
+      { path: `${folderPath}/README.md`, content: problemReadmeContent }
+    ];
+    if (rootReadmeFile) files.push(rootReadmeFile);
+
+    const commitRes = await commitFiles(
+      token,
+      hook,
+      files,
+      `Sync ${rawTitle} [${mainCategory}] - TUFHub`
+    );
+    const commitSha = commitRes.commitSha || '';
+    const htmlUrl = commitRes.htmlUrl || '';
+    console.log(`[TUFHub Sync Engine] ✅ Committed ${files.length} file(s) in one commit (${commitSha.slice(0, 7)})!`);
+
+    // Persist local stats for real now that the commit has actually landed.
+    await updateStats(data.difficulty, slug, {
+      [codeFileName]: true,
+      'README.md': true
+    }, mainCategory, mainTopic, problemMeta);
+
+    // Notify background worker to trigger success badge
     safeSendMessage({ type: 'SET_BADGE', state: 'success' });
 
-    // 6. Show success toast on TUF+ page with verifiable commit link
+    // Show success toast on TUF+ page with verifiable commit link
     await pushDiag('SYNC_OK', '', slug);
     await updateHealth({
       lastSyncAt: Date.now(),

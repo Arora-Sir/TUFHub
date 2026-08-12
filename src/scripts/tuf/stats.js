@@ -148,15 +148,27 @@ export async function getStats() {
   return stats;
 }
 
-export async function updateStats(difficulty, problemSlug, fileShas, mainTopic = 'DSA', subTopic = 'General', problemMeta = {}) {
-  const stats = await getStats();
-  
+/**
+ * Pure computation of "stats after this sync" - takes no storage action, so
+ * the sync engine can preview the root README content a commit WOULD produce
+ * before that commit actually lands, then persist the same object via
+ * updateStats() only once the commit has genuinely succeeded.
+ */
+export function computeUpdatedStats(currentStats, difficulty, problemSlug, fileShas, mainTopic = 'DSA', subTopic = 'General', problemMeta = {}) {
+  const stats = {
+    ...currentStats,
+    shas: { ...(currentStats.shas || {}) },
+    last_sync_time: { ...(currentStats.last_sync_time || {}) },
+    hierarchy: { ...(currentStats.hierarchy || {}) },
+    problems: { ...(currentStats.problems || {}) }
+  };
+
   if (!stats.shas[problemSlug]) {
-    stats.solved += 1;
+    stats.solved = (stats.solved || 0) + 1;
     const diffLower = (difficulty || 'medium').toLowerCase();
-    if (diffLower.includes('easy')) stats.easy += 1;
-    else if (diffLower.includes('hard')) stats.hard += 1;
-    else stats.medium += 1;
+    if (diffLower.includes('easy')) stats.easy = (stats.easy || 0) + 1;
+    else if (diffLower.includes('hard')) stats.hard = (stats.hard || 0) + 1;
+    else stats.medium = (stats.medium || 0) + 1;
   }
 
   stats.shas[problemSlug] = {
@@ -170,18 +182,15 @@ export async function updateStats(difficulty, problemSlug, fileShas, mainTopic =
   const syncTimeKey = problemMeta.codeFileName ? `${problemSlug}::${problemMeta.codeFileName}` : problemSlug;
   stats.last_sync_time[syncTimeKey] = Date.now();
 
-  if (!stats.hierarchy) stats.hierarchy = {};
-  stats.hierarchy[mainTopic] = stats.hierarchy[mainTopic] || {};
+  stats.hierarchy[mainTopic] = { ...(stats.hierarchy[mainTopic] || {}) };
   stats.hierarchy[mainTopic][subTopic] = true;
 
-  if (!stats.problems) stats.problems = {};
-  
   const existingProb = stats.problems[problemSlug] || {};
 
   // Legacy field, kept for scanAndSyncRepoStats' repo-reconciliation path and any
   // stats predating the per-file `files` map below - keyed by extension, so it
   // still only ever holds the LAST file of a given language (as before).
-  const languages = existingProb.languages || {};
+  const languages = { ...(existingProb.languages || {}) };
   if (problemMeta.codeFileName) {
     const ext = problemMeta.codeFileName.split('.').pop() || 'code';
     languages[ext] = problemMeta.codeFileName;
@@ -211,8 +220,14 @@ export async function updateStats(difficulty, problemSlug, fileShas, mainTopic =
     updatedAt: Date.now()
   };
 
-  await safeSetStorage({ stats });
   return stats;
+}
+
+export async function updateStats(difficulty, problemSlug, fileShas, mainTopic = 'DSA', subTopic = 'General', problemMeta = {}) {
+  const stats = await getStats();
+  const updated = computeUpdatedStats(stats, difficulty, problemSlug, fileShas, mainTopic, subTopic, problemMeta);
+  await safeSetStorage({ stats: updated });
+  return updated;
 }
 function generateHashCode(str) {
   let hash = 0;

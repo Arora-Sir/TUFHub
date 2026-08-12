@@ -6,6 +6,153 @@
 
 import { encode } from '../util.js';
 
+function ghHeaders(token, extra = {}) {
+  return {
+    Authorization: `token ${token}`,
+    Accept: 'application/vnd.github.v3+json',
+    ...extra
+  };
+}
+
+// Per-hook branch memo so a repeat commitFiles() call in the same session
+// doesn't re-probe default_branch/main/master every time.
+const branchCache = new Map();
+
+async function resolveDefaultBranch(token, hook) {
+  if (branchCache.has(hook)) return branchCache.get(hook);
+  try {
+    const res = await fetch(`https://api.github.com/repos/${hook}`, { headers: ghHeaders(token) });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.default_branch) {
+        branchCache.set(hook, json.default_branch);
+        return json.default_branch;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function getRef(token, hook, branch) {
+  const res = await fetch(`https://api.github.com/repos/${hook}/git/ref/heads/${branch}`, { headers: ghHeaders(token) });
+  if (!res.ok) return null;
+  const json = await res.json();
+  return json.object ? json.object.sha : null;
+}
+
+/**
+ * Resolves the branch to commit against, trying (in order) the repo's real
+ * default_branch, then a bare "main"/"master" probe if that lookup fails -
+ * mirrors the fallback stats.js already uses on the read side for repo-tree
+ * reconciliation.
+ */
+async function resolveBranchAndHead(token, hook) {
+  const candidates = [];
+  const known = await resolveDefaultBranch(token, hook);
+  if (known) candidates.push(known);
+  if (!candidates.includes('main')) candidates.push('main');
+  if (!candidates.includes('master')) candidates.push('master');
+
+  for (const branch of candidates) {
+    const headSha = await getRef(token, hook, branch);
+    if (headSha) {
+      branchCache.set(hook, branch);
+      return { branch, headSha };
+    }
+  }
+  throw new Error('Could not resolve a branch HEAD for this repository.');
+}
+
+/**
+ * Commits any number of files as ONE atomic git commit via the Git Data API
+ * (blobs -> tree -> commit -> ref update), instead of one Contents-API PUT
+ * per file (which each create their own commit). Blobs are content-addressed
+ * so no per-file "current sha" lookup is needed before writing.
+ *
+ * @param {Array<{path: string, content: string}>} files
+ * @returns {Promise<{commitSha: string, htmlUrl: string, treeSha: string}>}
+ */
+export async function commitFiles(token, hook, files, commitMessage, retries = 3) {
+  if (!files || files.length === 0) {
+    throw new Error('commitFiles called with no files.');
+  }
+
+  let lastErr;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const { branch, headSha } = await resolveBranchAndHead(token, hook);
+
+      const commitRes = await fetch(`https://api.github.com/repos/${hook}/git/commits/${headSha}`, { headers: ghHeaders(token) });
+      if (!commitRes.ok) throw new Error(`GitHub Commit Lookup Failed (${commitRes.status})`);
+      const commitJson = await commitRes.json();
+      const baseTreeSha = commitJson.tree.sha;
+
+      const blobShas = await Promise.all(files.map(async (file) => {
+        const blobRes = await fetch(`https://api.github.com/repos/${hook}/git/blobs`, {
+          method: 'POST',
+          headers: ghHeaders(token, { 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ content: encode(file.content), encoding: 'base64' })
+        });
+        if (!blobRes.ok) throw new Error(`GitHub Blob Create Failed (${blobRes.status}) for ${file.path}`);
+        const blobJson = await blobRes.json();
+        return blobJson.sha;
+      }));
+
+      const treeRes = await fetch(`https://api.github.com/repos/${hook}/git/trees`, {
+        method: 'POST',
+        headers: ghHeaders(token, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          base_tree: baseTreeSha,
+          tree: files.map((file, i) => ({ path: file.path, mode: '100644', type: 'blob', sha: blobShas[i] }))
+        })
+      });
+      if (!treeRes.ok) throw new Error(`GitHub Tree Create Failed (${treeRes.status})`);
+      const treeJson = await treeRes.json();
+
+      const newCommitRes = await fetch(`https://api.github.com/repos/${hook}/git/commits`, {
+        method: 'POST',
+        headers: ghHeaders(token, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ message: commitMessage, tree: treeJson.sha, parents: [headSha] })
+      });
+      if (!newCommitRes.ok) throw new Error(`GitHub Commit Create Failed (${newCommitRes.status})`);
+      const newCommitJson = await newCommitRes.json();
+
+      // force:false so a genuine concurrent write (second tab, manual popup
+      // Sync) surfaces as a rejected ref update instead of silently
+      // overwriting whatever landed on the branch in between.
+      const refRes = await fetch(`https://api.github.com/repos/${hook}/git/refs/heads/${branch}`, {
+        method: 'PATCH',
+        headers: ghHeaders(token, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ sha: newCommitJson.sha, force: false })
+      });
+
+      if (refRes.ok) {
+        return {
+          commitSha: newCommitJson.sha,
+          htmlUrl: newCommitJson.html_url || `https://github.com/${hook}/commit/${newCommitJson.sha}`,
+          treeSha: treeJson.sha
+        };
+      }
+
+      if (refRes.status === 409 || refRes.status === 422) {
+        console.warn(`[TUFHub Debug] Ref update conflict on ${branch} (attempt ${attempt + 1}/${retries}). Retrying against new HEAD...`);
+        lastErr = new Error(`GitHub Ref Update Conflict (${refRes.status})`);
+        await new Promise(r => setTimeout(r, 300));
+        continue;
+      }
+
+      throw new Error(`GitHub Ref Update Failed (${refRes.status})`);
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries - 1) {
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+  }
+
+  throw lastErr || new Error(`commitFiles failed after ${retries} retries`);
+}
+
 export async function uploadToGitHub(token, hook, path, content, commitMessage, sha = '', retries = 3) {
   const url = `https://api.github.com/repos/${hook}/contents/${path}`;
   let currentSha = sha;
