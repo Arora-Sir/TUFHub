@@ -6,19 +6,26 @@
   <title>TUFHub - TakeUForward (TUF) GitHub Sync Chrome Extension</title>
   <meta name="description" content="Automatically sync your accepted TakeUForward (TUF+) DSA solutions to your GitHub repository in real time. Turn daily practice into a verified developer identity.">
   <meta name="keywords" content="TUFHub, TakeUForward, DSA, GitHub Sync, LeetHub, Chrome Extension, Coding Practice, Developer Portfolio, Mohit Arora">
-  
+  <link rel="canonical" href="https://tufhub.mohitarora.me/">
+
   <!-- Open Graph / Social Sharing -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://tufhub.mohitarora.me/">
   <meta property="og:title" content="TUFHub - TakeUForward GitHub Sync">
   <meta property="og:description" content="Automatically sync accepted TakeUForward (TUF+) solutions to GitHub in real time.">
-  <meta property="og:image" content="https://tufhub.mohitarora.me/assets/card_autosync.png">
+  <meta property="og:image" content="https://tufhub.mohitarora.me/assets/card_05_github_code.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="800">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="TUFHub - TakeUForward GitHub Sync">
+  <meta name="twitter:description" content="Automatically sync accepted TakeUForward (TUF+) solutions to GitHub in real time.">
+  <meta name="twitter:image" content="https://tufhub.mohitarora.me/assets/card_05_github_code.png">
 
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="assets/logo.png">
+  <!-- Favicon (dedicated small export - see logo.png for the 512px source) -->
+  <link rel="icon" type="image/png" href="assets/favicon-32.png">
 
   <!-- Preload hero image for fast above-the-fold paint -->
-  <link rel="preload" as="image" href="assets/hero_preview.png" fetchpriority="high">
+  <link rel="preload" as="image" href="assets/hero_preview.webp" type="image/webp" fetchpriority="high">
 
   <!-- Google Fonts (non-render-blocking via media trick) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -118,6 +125,16 @@
       transition: var(--transition);
     }
 
+    a:focus-visible,
+    button:focus-visible,
+    .btn:focus-visible,
+    .nav-toggle:focus-visible,
+    .faq-item summary:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 3px;
+      border-radius: 6px;
+    }
+
     .container {
       max-width: 1200px;
       margin: 0 auto;
@@ -158,11 +175,35 @@
       color: #fff;
     }
 
+    /* Glow lives on this wrapper, not on the img itself - box-shadow always
+       follows the element's own (mostly square) box, never the actual icon
+       silhouette, so a shadow on the img reads as a square halo. A blurred
+       circular pseudo-element behind it gives a soft ambient glow instead. */
+    .brand-icon {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .brand-icon::before {
+      content: '';
+      position: absolute;
+      inset: -6px;
+      border-radius: 50%;
+      background: var(--primary-glow);
+      filter: blur(10px);
+      opacity: 0.9;
+      z-index: -1;
+      transition: opacity 0.3s ease;
+    }
+
+    .brand:hover .brand-icon::before {
+      opacity: 1;
+    }
+
     .brand img {
       width: 36px;
       height: 36px;
       border-radius: 8px;
-      box-shadow: 0 0 12px var(--primary-glow);
       transition: transform 0.3s ease;
     }
 
@@ -185,6 +226,41 @@
 
     .nav-link-text:hover {
       color: #fff;
+    }
+
+    .nav-toggle {
+      display: none;
+      width: 40px;
+      height: 40px;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      cursor: pointer;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .nav-toggle span {
+      display: block;
+      width: 18px;
+      height: 2px;
+      background: var(--text);
+      border-radius: 2px;
+      transition: var(--transition);
+    }
+
+    .nav-toggle[aria-expanded="true"] span:nth-child(1) {
+      transform: translateY(6px) rotate(45deg);
+    }
+
+    .nav-toggle[aria-expanded="true"] span:nth-child(2) {
+      opacity: 0;
+    }
+
+    .nav-toggle[aria-expanded="true"] span:nth-child(3) {
+      transform: translateY(-6px) rotate(-45deg);
     }
 
     /* Buttons with Shimmer Hover Animation */
@@ -248,6 +324,7 @@
 
     /* Hero Section Entry Animations */
     .hero {
+      position: relative;
       padding: 90px 0 60px;
       text-align: center;
     }
@@ -353,6 +430,47 @@
       50% { transform: translateY(-10px); }
     }
 
+    /* Commit-graph ambient motif - replaces a generic abstract blob with
+       something that actually reads as "git history", tying the hero's
+       background texture to what the product does. */
+    .commit-graph {
+      position: absolute;
+      top: -60px;
+      right: -40px;
+      width: 340px;
+      height: 260px;
+      z-index: -1;
+      opacity: 0.35;
+      pointer-events: none;
+    }
+
+    .commit-graph .cg-line {
+      fill: none;
+      stroke: url(#cgLineGradient);
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-dasharray: 400;
+      stroke-dashoffset: 400;
+      animation: cgDraw 2.4s ease-out 0.6s forwards;
+    }
+
+    .commit-graph .cg-node {
+      fill: var(--bg);
+      stroke: var(--primary);
+      stroke-width: 2;
+      opacity: 0;
+      animation: cgPop 0.5s ease-out forwards;
+    }
+
+    @keyframes cgDraw {
+      to { stroke-dashoffset: 0; }
+    }
+
+    @keyframes cgPop {
+      from { opacity: 0; transform: scale(0.4); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
     /* Stats Bar */
     .stats-bar {
       display: grid;
@@ -367,16 +485,27 @@
       text-align: center;
     }
 
-    .stat-item .num {
+    .stat-item .num,
+    .stat-item .static-value {
       font-size: 2.4rem;
       font-weight: 800;
       color: #fff;
+    }
+
+    /* Distinct from .num on purpose - these two entries never count up, so
+       they don't share a class name that implies they do. */
+    .stat-item .static-value {
+      font-size: 1.6rem;
     }
 
     .stat-item .label {
       font-size: 0.9rem;
       color: var(--text-muted);
       margin-top: 4px;
+    }
+
+    #features, #structure, #faq {
+      scroll-margin-top: 90px;
     }
 
     /* Section Headers */
@@ -410,15 +539,28 @@
       border: 1px solid var(--card-border);
       border-radius: var(--radius);
       padding: 32px;
-      transition: var(--transition);
+      transition: var(--transition), opacity 0.6s ease, transform 0.6s ease;
+      transition-delay: 0s, calc(var(--i, 0) * 90ms), calc(var(--i, 0) * 90ms);
       backdrop-filter: blur(12px);
       position: relative;
+      opacity: 0;
+      transform: translateY(16px);
     }
 
-    .feature-card:hover {
+    .reveal.active .feature-card {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .feature-card:hover,
+    .reveal.active .feature-card:hover {
       transform: translateY(-6px);
       border-color: var(--card-hover-border);
       box-shadow: 0 16px 36px -10px rgba(56, 189, 248, 0.18);
+      /* Without this, a card with a large --i (staggered entrance delay)
+         would carry that same delay into every later hover, making it feel
+         sluggish to the touch long after it has already revealed. */
+      transition-delay: 0s;
     }
 
     .feature-icon {
@@ -438,6 +580,11 @@
 
     .feature-card:hover .feature-icon {
       transform: scale(1.1) rotate(5deg);
+    }
+
+    .feature-icon svg {
+      width: 22px;
+      height: 22px;
     }
 
     .feature-card h3 {
@@ -496,12 +643,26 @@
     .code-box .file { color: #34d399; }
     .code-box .comment { color: #64748b; font-style: italic; }
 
-    /* Showcase Cards */
+    /* Showcase Cards - explicit column counts (not auto-fit) so 6 cards
+       always land as a symmetric grid instead of an occasional lopsided
+       wrap. */
     .showcase-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      grid-template-columns: repeat(3, 1fr);
       gap: 28px;
       margin-bottom: 110px;
+    }
+
+    @media (max-width: 980px) {
+      .showcase-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .showcase-grid {
+        grid-template-columns: 1fr;
+      }
     }
 
     .showcase-card {
@@ -510,20 +671,38 @@
       border-radius: var(--radius);
       overflow: hidden;
       backdrop-filter: blur(12px);
-      transition: var(--transition);
+      transition: var(--transition), opacity 0.6s ease, transform 0.6s ease;
+      transition-delay: 0s, calc(var(--i, 0) * 90ms), calc(var(--i, 0) * 90ms);
+      opacity: 0;
+      transform: translateY(16px);
     }
 
-    .showcase-card:hover {
+    .reveal.active .showcase-card {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .showcase-card:hover,
+    .reveal.active .showcase-card:hover {
       border-color: var(--card-hover-border);
       transform: translateY(-6px);
       box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
+      transition-delay: 0s;
+    }
+
+    /* No extra window-chrome bar here on purpose - the screenshots already
+       carry their own browser/popup mockup frame baked in. */
+    .showcase-media {
+      aspect-ratio: 1280 / 800;
+      overflow: hidden;
+      background: #02040a;
     }
 
     .showcase-card img {
       width: 100%;
-      height: auto;
+      height: 100%;
+      object-fit: cover;
       display: block;
-      border-bottom: 1px solid var(--card-border);
       transition: transform 0.4s ease;
     }
 
@@ -566,9 +745,7 @@
     .step-number {
       font-size: 2.5rem;
       font-weight: 800;
-      background: var(--gradient);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+      color: var(--primary);
       margin-bottom: 12px;
       display: inline-block;
       transition: transform 0.3s ease;
@@ -786,11 +963,52 @@
       .hero {
         padding: 50px 0 40px;
       }
+      .commit-graph {
+        display: none;
+      }
       .steps-section {
         padding: 36px 20px;
       }
+
+      .nav-toggle {
+        display: flex;
+      }
+
+      .nav-links {
+        position: fixed;
+        top: 65px;
+        left: 0;
+        right: 0;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0;
+        background: rgba(6, 9, 19, 0.97);
+        backdrop-filter: blur(16px);
+        border-bottom: 1px solid var(--card-border);
+        padding: 8px 24px 20px;
+        transform: translateY(-12px);
+        opacity: 0;
+        pointer-events: none;
+        transition: var(--transition);
+      }
+
+      .nav-links.open {
+        transform: translateY(0);
+        opacity: 1;
+        pointer-events: auto;
+      }
+
       .nav-links .nav-link-text {
-        display: none;
+        display: block;
+        width: 100%;
+        padding: 14px 4px;
+        border-bottom: 1px solid var(--card-border);
+      }
+
+      .nav-links .btn {
+        width: 100%;
+        justify-content: center;
+        margin-top: 12px;
       }
     }
   </style>
@@ -805,10 +1023,15 @@
   <header id="header">
     <div class="container nav-wrapper">
       <div class="brand">
-        <img src="assets/logo.png" alt="TUFHub Logo">
+        <span class="brand-icon">
+          <img src="assets/logo-nav.png" width="36" height="36" alt="TUFHub Logo">
+        </span>
         <span>TUFHub</span>
       </div>
-      <div class="nav-links">
+      <button type="button" class="nav-toggle" id="navToggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="navLinks">
+        <span></span><span></span><span></span>
+      </button>
+      <div class="nav-links" id="navLinks">
         <a href="#features" class="nav-link-text">Features</a>
         <a href="#structure" class="nav-link-text">Structure</a>
         <a href="#faq" class="nav-link-text">FAQ</a>
@@ -822,12 +1045,28 @@
   <section class="hero">
     <div class="container">
       <div class="badge">
-        <span class="badge-dot"></span> Manifest V3 Compliant - Official Release v1.0.1
+        <span class="badge-dot"></span> Manifest V3 Compliant - Official Release <span id="verBadge">v1.3.1</span>
       </div>
       <h1>
         Sync Your TakeUForward Solutions<br>
         <span class="gradient-text">Directly to GitHub</span>
       </h1>
+      <svg class="commit-graph" viewBox="0 0 340 260" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="cgLineGradient" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#38bdf8"/>
+            <stop offset="100%" stop-color="#c084fc"/>
+          </linearGradient>
+        </defs>
+        <path class="cg-line" d="M40,220 C40,180 40,160 80,150 C120,140 120,120 120,90" />
+        <path class="cg-line" d="M40,220 L40,60" style="animation-delay:0.7s" />
+        <path class="cg-line" d="M120,90 C120,60 120,50 160,40 C200,30 200,20 200,10" style="animation-delay:1.1s" />
+        <circle class="cg-node" cx="40" cy="220" r="7" style="animation-delay:1.6s" />
+        <circle class="cg-node" cx="40" cy="140" r="7" style="animation-delay:1.75s" />
+        <circle class="cg-node" cx="40" cy="60" r="7" style="animation-delay:1.9s" />
+        <circle class="cg-node" cx="120" cy="90" r="7" style="animation-delay:2.05s" />
+        <circle class="cg-node" cx="200" cy="10" r="7" style="animation-delay:2.2s" />
+      </svg>
       <p>
         Turn daily DSA practice on TakeUForward (TUF+) into a verified developer footprint. Solve problems, get 100% accepted, and let TUFHub auto-commit your code instantly.
       </p>
@@ -845,7 +1084,10 @@
 
       <!-- Preview Image Frame: eager + high priority for instant above-fold paint -->
       <div class="hero-preview">
-        <img src="assets/hero_preview.png" alt="TUFHub Extension Dashboard Preview" loading="eager" fetchpriority="high" decoding="sync">
+        <picture>
+          <source srcset="assets/hero_preview.webp" type="image/webp">
+          <img src="assets/hero_preview.png" width="960" height="499" alt="TUFHub Extension Dashboard Preview" loading="eager" fetchpriority="high" decoding="sync">
+        </picture>
       </div>
     </div>
   </section>
@@ -862,11 +1104,11 @@
         <div class="label">Languages Supported</div>
       </div>
       <div class="stat-item">
-        <div class="num">Manifest V3</div>
+        <div class="static-value">Manifest V3</div>
         <div class="label">Chrome Extension Standard</div>
       </div>
       <div class="stat-item">
-        <div class="num">MIT</div>
+        <div class="static-value">MIT</div>
         <div class="label">Open Source License</div>
       </div>
     </div>
@@ -880,38 +1122,50 @@
     </div>
 
     <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon">⚡</div>
+      <div class="feature-card" style="--i:0">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3 5 13h5l-1 8 8-10h-5l1-8Z"/></svg>
+        </div>
         <h3>Auto-Sync on 100% Pass</h3>
         <p>Only pushes solutions when all test cases pass 100%. Incomplete or failing attempts are automatically filtered out.</p>
       </div>
 
-      <div class="feature-card">
-        <div class="feature-icon">📁</div>
+      <div class="feature-card" style="--i:1">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6Z"/></svg>
+        </div>
         <h3>Smart Topic Hierarchy</h3>
         <p>Organizes code under structured subdirectories like <code>DSA/Arrays/0001-set-matrix-zeroes/</code> with clean language extensions.</p>
       </div>
 
-      <div class="feature-card">
-        <div class="feature-icon">📊</div>
+      <div class="feature-card" style="--i:2">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="20" x2="5" y2="12"/><line x1="12" y1="20" x2="12" y2="6"/><line x1="19" y1="20" x2="19" y2="15"/><line x1="3" y1="20" x2="21" y2="20"/></svg>
+        </div>
         <h3>Master README Dashboard</h3>
         <p>Automatically maintains a root <code>README.md</code> index table of all your solved problems sorted by category and difficulty.</p>
       </div>
 
-      <div class="feature-card">
-        <div class="feature-icon">📝</div>
+      <div class="feature-card" style="--i:3">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5"/><line x1="8.5" y1="12" x2="15.5" y2="12"/><line x1="8.5" y1="15.5" x2="15.5" y2="15.5"/></svg>
+        </div>
         <h3>Problem Statement README</h3>
         <p>Generates a dedicated <code>README.md</code> inside every problem folder containing difficulty, complexity analysis, and description.</p>
       </div>
 
-      <div class="feature-card">
-        <div class="feature-icon">🔐</div>
+      <div class="feature-card" style="--i:4">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.5 8.5 8 9 4.5-.5 8-4 8-9V6l-8-3Z"/><circle cx="12" cy="11" r="1.6"/><path d="M12 12.6V15"/></svg>
+        </div>
         <h3>Flexible Auth Options</h3>
         <p>Connect securely via GitHub Personal Access Tokens (PAT) with <code>repo</code> scope or standard OAuth. Your keys stay local.</p>
       </div>
 
-      <div class="feature-card">
-        <div class="feature-icon">🔄</div>
+      <div class="feature-card" style="--i:5">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11A8 8 0 0 0 6.3 6.3L4 8.6"/><path d="M4 4v4.6h4.6"/><path d="M4 13a8 8 0 0 0 13.7 4.7L20 15.4"/><path d="M20 20v-4.6h-4.6"/></svg>
+        </div>
         <h3>Conflict-Safe Queue</h3>
         <p>Sequential push queuing mechanism prevents Git 409 commit conflicts when solving multiple problems back-to-back.</p>
       </div>
@@ -961,27 +1215,81 @@
     </div>
 
     <div class="showcase-grid">
-      <div class="showcase-card">
-        <img src="assets/card_autosync.png" alt="Auto Sync Feature Card" loading="lazy" decoding="async">
+      <div class="showcase-card" style="--i:0">
+        <div class="showcase-media">
+          <picture>
+            <source srcset="assets/card_01_autosync.webp" type="image/webp">
+            <img src="assets/card_01_autosync.png" width="1280" height="800" alt="GitHub OAuth setup screen in the TUFHub welcome flow" loading="lazy" decoding="async">
+          </picture>
+        </div>
         <div class="showcase-content">
-          <h4>Real-Time Push</h4>
+          <h4>GitHub OAuth Setup</h4>
+          <p>Connect a registered GitHub OAuth App with a guided, pre-filled registration link.</p>
+        </div>
+      </div>
+
+      <div class="showcase-card" style="--i:1">
+        <div class="showcase-media">
+          <picture>
+            <source srcset="assets/card_02_master_index.webp" type="image/webp">
+            <img src="assets/card_02_master_index.png" width="1280" height="800" alt="GitHub repository view of a structured solution file" loading="lazy" decoding="async">
+          </picture>
+        </div>
+        <div class="showcase-content">
+          <h4>Structured Solution Files</h4>
+          <p>Every solution lands in a clean, topic-organized folder structure on GitHub.</p>
+        </div>
+      </div>
+
+      <div class="showcase-card" style="--i:2">
+        <div class="showcase-media">
+          <picture>
+            <source srcset="assets/card_03_popup.webp" type="image/webp">
+            <img src="assets/card_03_popup.png" width="1280" height="800" alt="TUFHub extension popup dashboard with solved problem stats" loading="lazy" decoding="async">
+          </picture>
+        </div>
+        <div class="showcase-content">
+          <h4>Popup Stats Dashboard</h4>
+          <p>Track Solved, Easy, Medium, and Hard counts right from your Chrome toolbar.</p>
+        </div>
+      </div>
+
+      <div class="showcase-card" style="--i:3">
+        <div class="showcase-media">
+          <picture>
+            <source srcset="assets/card_04_onboarding.webp" type="image/webp">
+            <img src="assets/card_04_onboarding.png" width="1280" height="800" alt="Personal Access Token setup screen in the TUFHub welcome flow" loading="lazy" decoding="async">
+          </picture>
+        </div>
+        <div class="showcase-content">
+          <h4>Personal Access Token Setup</h4>
+          <p>Prefer a PAT over OAuth? Paste a token with repo scope and you're connected.</p>
+        </div>
+      </div>
+
+      <div class="showcase-card" style="--i:4">
+        <div class="showcase-media">
+          <picture>
+            <source srcset="assets/card_05_github_code.webp" type="image/webp">
+            <img src="assets/card_05_github_code.png" width="1280" height="800" alt="TakeUForward submissions page with the TUFHub popup syncing a solution" loading="lazy" decoding="async">
+          </picture>
+        </div>
+        <div class="showcase-content">
+          <h4>Real-Time Push in Action</h4>
           <p>Triggers instantly when your solution passes 100% of test cases on TakeUForward.</p>
         </div>
       </div>
 
-      <div class="showcase-card">
-        <img src="assets/card_index.png" alt="Master Index README Table" loading="lazy" decoding="async">
+      <div class="showcase-card" style="--i:5">
+        <div class="showcase-media">
+          <picture>
+            <source srcset="assets/card_06_repo_overview.webp" type="image/webp">
+            <img src="assets/card_06_repo_overview.png" width="1280" height="800" alt="GitHub repository README with the master solved-problems index table" loading="lazy" decoding="async">
+          </picture>
+        </div>
         <div class="showcase-content">
           <h4>Master README Index</h4>
           <p>Maintains an updated markdown table with links, difficulty badges, and dates.</p>
-        </div>
-      </div>
-
-      <div class="showcase-card">
-        <img src="assets/card_popup.png" alt="Live Extension Popup Card" loading="lazy" decoding="async">
-        <div class="showcase-content">
-          <h4>Popup Stats Dashboard</h4>
-          <p>Track Solved, Easy, Medium, and Hard counts right from your Chrome toolbar.</p>
         </div>
       </div>
     </div>
@@ -1114,6 +1422,59 @@
         header.classList.remove('scrolled');
       }
     });
+
+    // Live version badge - best-effort fetch of the real manifest version so
+    // the hero badge can't silently go stale after a release again. Falls
+    // back to the static text already in the span on any failure.
+    fetch('https://raw.githubusercontent.com/Arora-Sir/TUFHub/main/src/manifest.json')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        if (data && data.version) {
+          document.getElementById('verBadge').textContent = 'v' + data.version;
+        }
+      })
+      .catch(() => {});
+
+    // Mobile Nav Toggle
+    const navToggle = document.getElementById('navToggle');
+    const navLinks = document.getElementById('navLinks');
+    navToggle.addEventListener('click', () => {
+      const isOpen = navLinks.classList.toggle('open');
+      navToggle.setAttribute('aria-expanded', String(isOpen));
+    });
+    navLinks.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        navLinks.classList.remove('open');
+        navToggle.setAttribute('aria-expanded', 'false');
+      });
+    });
+
+    // Subtle Cursor-Tilt Micro-Interaction on Feature Cards
+    // Kept small (max ~6deg) and skipped entirely for reduced-motion or
+    // touch-only devices, where mousemove doesn't represent real intent.
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const supportsHover = window.matchMedia('(hover: hover)').matches;
+    if (!prefersReducedMotion && supportsHover) {
+      document.querySelectorAll('.feature-card').forEach(card => {
+        // Own fast transition on enter/move so the tilt tracks the cursor
+        // crisply instead of inheriting the card's slower 0.6s entrance
+        // transition; a slightly longer one on leave for a smooth settle.
+        card.addEventListener('mouseenter', () => {
+          card.style.transition = 'transform 0.1s ease-out';
+        });
+        card.addEventListener('mousemove', (e) => {
+          const rect = card.getBoundingClientRect();
+          const x = (e.clientX - rect.left) / rect.width - 0.5;
+          const y = (e.clientY - rect.top) / rect.height - 0.5;
+          card.style.transform = `translateY(-6px) perspective(600px) rotateX(${(-y * 6).toFixed(2)}deg) rotateY(${(x * 6).toFixed(2)}deg)`;
+        });
+        card.addEventListener('mouseleave', () => {
+          card.style.transition = 'transform 0.4s ease';
+          card.style.transform = '';
+          setTimeout(() => { card.style.transition = ''; }, 400);
+        });
+      });
+    }
 
     // Intersection Observer for Scroll Reveals
     // rootMargin fires 80px BEFORE element enters viewport so animation is ready
