@@ -64,19 +64,15 @@ async function resolveBranchAndHead(token, hook) {
 }
 
 /**
- * Commits any number of files as ONE atomic git commit via the Git Data API
- * (blobs -> tree -> commit -> ref update), instead of one Contents-API PUT
- * per file (which each create their own commit). Blobs are content-addressed
- * so no per-file "current sha" lookup is needed before writing.
+ * Commits a set of pre-built tree entries as ONE atomic git commit via the
+ * Git Data API (tree -> commit -> ref update). Shared tail for both writing
+ * files (commitFiles, blob-backed entries) and removing them (deleteFiles,
+ * sha:null entries) - only how the entries are built differs between callers.
  *
- * @param {Array<{path: string, content: string}>} files
+ * @param {Array<{path: string, mode: string, type: string, sha: string|null}>} treeEntries
  * @returns {Promise<{commitSha: string, htmlUrl: string, treeSha: string}>}
  */
-export async function commitFiles(token, hook, files, commitMessage, retries = 3) {
-  if (!files || files.length === 0) {
-    throw new Error('commitFiles called with no files.');
-  }
-
+async function commitTreeEntries(token, hook, treeEntries, commitMessage, retries = 3) {
   let lastErr;
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
@@ -87,24 +83,10 @@ export async function commitFiles(token, hook, files, commitMessage, retries = 3
       const commitJson = await commitRes.json();
       const baseTreeSha = commitJson.tree.sha;
 
-      const blobShas = await Promise.all(files.map(async (file) => {
-        const blobRes = await fetch(`https://api.github.com/repos/${hook}/git/blobs`, {
-          method: 'POST',
-          headers: ghHeaders(token, { 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ content: encode(file.content), encoding: 'base64' })
-        });
-        if (!blobRes.ok) throw new Error(`GitHub Blob Create Failed (${blobRes.status}) for ${file.path}`);
-        const blobJson = await blobRes.json();
-        return blobJson.sha;
-      }));
-
       const treeRes = await fetch(`https://api.github.com/repos/${hook}/git/trees`, {
         method: 'POST',
         headers: ghHeaders(token, { 'Content-Type': 'application/json' }),
-        body: JSON.stringify({
-          base_tree: baseTreeSha,
-          tree: files.map((file, i) => ({ path: file.path, mode: '100644', type: 'blob', sha: blobShas[i] }))
-        })
+        body: JSON.stringify({ base_tree: baseTreeSha, tree: treeEntries })
       });
       if (!treeRes.ok) throw new Error(`GitHub Tree Create Failed (${treeRes.status})`);
       const treeJson = await treeRes.json();
@@ -150,7 +132,70 @@ export async function commitFiles(token, hook, files, commitMessage, retries = 3
     }
   }
 
-  throw lastErr || new Error(`commitFiles failed after ${retries} retries`);
+  throw lastErr || new Error(`commitTreeEntries failed after ${retries} retries`);
+}
+
+/**
+ * Commits any number of files as ONE atomic git commit via the Git Data API
+ * (blobs -> tree -> commit -> ref update), instead of one Contents-API PUT
+ * per file (which each create their own commit). Blobs are content-addressed
+ * so no per-file "current sha" lookup is needed before writing.
+ *
+ * @param {Array<{path: string, content: string}>} files
+ * @returns {Promise<{commitSha: string, htmlUrl: string, treeSha: string}>}
+ */
+async function createBlob(token, hook, file, retries) {
+  let lastErr;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const blobRes = await fetch(`https://api.github.com/repos/${hook}/git/blobs`, {
+        method: 'POST',
+        headers: ghHeaders(token, { 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ content: encode(file.content), encoding: 'base64' })
+      });
+      if (!blobRes.ok) throw new Error(`GitHub Blob Create Failed (${blobRes.status}) for ${file.path}`);
+      const blobJson = await blobRes.json();
+      return blobJson.sha;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries - 1) await new Promise(r => setTimeout(r, 300));
+    }
+  }
+  throw lastErr;
+}
+
+export async function commitFiles(token, hook, files, commitMessage, retries = 3) {
+  if (!files || files.length === 0) {
+    throw new Error('commitFiles called with no files.');
+  }
+
+  // Own retry loop, independent of commitTreeEntries' ref-conflict retries below -
+  // a failed blob upload is a transient network issue, not a concurrent-write
+  // conflict, and shouldn't be silently unretried just because this step now
+  // lives outside the shared tree/commit/ref loop.
+  const blobShas = await Promise.all(files.map(file => createBlob(token, hook, file, retries)));
+
+  const treeEntries = files.map((file, i) => ({ path: file.path, mode: '100644', type: 'blob', sha: blobShas[i] }));
+  return commitTreeEntries(token, hook, treeEntries, commitMessage, retries);
+}
+
+/**
+ * Deletes a set of exact blob paths in ONE atomic git commit. GitHub's Git
+ * Trees API removes a path from the tree when its entry carries sha: null -
+ * no blob-creation or per-file "current sha" lookup needed, since removal is
+ * resolved against a fresh base tree fetched at commit time inside
+ * commitTreeEntries.
+ *
+ * @param {string[]} paths
+ * @returns {Promise<{commitSha: string, htmlUrl: string, treeSha: string}>}
+ */
+export async function deleteFiles(token, hook, paths, commitMessage, retries = 3) {
+  if (!paths || paths.length === 0) {
+    throw new Error('deleteFiles called with no paths.');
+  }
+
+  const treeEntries = paths.map(path => ({ path, mode: '100644', type: 'blob', sha: null }));
+  return commitTreeEntries(token, hook, treeEntries, commitMessage, retries);
 }
 
 export async function uploadToGitHub(token, hook, path, content, commitMessage, sha = '', retries = 3) {

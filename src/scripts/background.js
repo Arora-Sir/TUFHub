@@ -4,6 +4,7 @@
  */
 
 import { reconcileRepoFromTree } from './tuf/stats.js';
+import { deleteFiles } from './tuf/uploader.js';
 
 const DEFAULT_CLIENT_ID = ''; // User provides their own OAuth Client ID via the welcome page
 
@@ -178,6 +179,41 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           const result = { ok: false, reason: 'error', message: err && err.message };
           chrome.storage.local.set({ tufhub_last_reconcile_result: result });
           sendResponse(result);
+        });
+    });
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.type === 'DELETE_REPO_FOLDER') {
+    // Same reasoning as RECONCILE_REPO above: runs in the service worker so a
+    // closed popup can't leave a delete commit half-done. Re-reconciles right
+    // after (skipCooldown - this is a system-triggered refresh reacting to a
+    // real repo mutation, not the manual button-mashing the cooldown guards
+    // against) so the response already reflects the post-delete repo state.
+    chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], (res) => {
+      const token = res.tufhub_token;
+      const hook = res.tufhub_hook;
+      deleteFiles(token, hook, request.paths, `Remove duplicate folder ${request.folderPath} - TUFHub`)
+        .then(async () => {
+          let result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
+          // GitHub's tree-read API can very briefly lag a commit that just
+          // landed - if the folder we just deleted still shows up, the read
+          // raced the write. One short retry clears it instead of the popup
+          // showing a folder as still there when it's actually already gone.
+          const stillThere = (result.duplicates || []).some(d =>
+            (d.folders || []).some(f => f.folderPath === request.folderPath));
+          if (stillThere) {
+            await new Promise(r => setTimeout(r, 1500));
+            result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
+          }
+          return result;
+        })
+        .then((result) => {
+          chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          sendResponse(result);
+        })
+        .catch((err) => {
+          sendResponse({ ok: false, reason: 'error', message: err && err.message });
         });
     });
     return true; // Keep message channel open for async response

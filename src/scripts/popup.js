@@ -32,8 +32,125 @@ document.addEventListener('DOMContentLoaded', () => {
     statHard.innerText = stats.hard || 0;
   }
 
+  // -------------------------------------------------------------
+  // Duplicate problem folders panel
+  //
+  // reconcileRepoFromTree groups repo folders by slug only, so a problem left
+  // behind in an old folder after a re-categorization silently overwrites down
+  // to one entry with no built-in warning. Persisted here (read from storage on
+  // every popup open, not just right after a manual Sync click) so it can't be
+  // missed by closing the popup before reading a transient message.
+  // -------------------------------------------------------------
+  const duplicatesSection = document.getElementById('duplicates-section');
+  const duplicatesSummary = document.getElementById('duplicates-summary');
+  const duplicatesBody = document.getElementById('duplicates-body');
+  const copyDuplicatesBtn = document.getElementById('copy-duplicates-btn');
+
+  let repoHook = ''; // set once auth state loads below, reused in the delete confirm dialog
+
+  function renderDuplicates(duplicates) {
+    if (!duplicatesSection || !duplicatesBody) return;
+
+    if (!duplicates || !duplicates.length) {
+      duplicatesSection.classList.add('hidden');
+      duplicatesBody.replaceChildren();
+      return;
+    }
+
+    duplicatesSection.classList.remove('hidden');
+    if (duplicatesSummary) {
+      duplicatesSummary.textContent = `${duplicates.length} problem${duplicates.length > 1 ? 's' : ''}`;
+    }
+
+    duplicatesBody.replaceChildren();
+    duplicates.forEach(({ slug, folders }) => {
+      const entry = document.createElement('div');
+      entry.style.cssText = 'margin-bottom: 10px;';
+
+      const title = document.createElement('div');
+      title.style.cssText = 'font-weight: 600; margin-bottom: 3px;';
+      title.textContent = slug;
+      entry.appendChild(title);
+
+      // Newest commit first - the categorization fix landed this session, so
+      // for any duplicate the newer copy is the one written by the fix (correct
+      // topic) and the older one predates it (wrong topic). Nulls (lookup
+      // failed) sort last rather than being mistaken for "oldest".
+      const sortedFolders = (folders || []).slice().sort((a, b) => {
+        if (a.lastModified == null) return 1;
+        if (b.lastModified == null) return -1;
+        return b.lastModified - a.lastModified;
+      });
+
+      sortedFolders.forEach(({ folderPath, files, lastModified }, i) => {
+        const pathRow = document.createElement('div');
+        pathRow.style.cssText = 'display: flex; gap: 6px; align-items: center; padding-left: 6px; margin-top: 2px;';
+
+        const pathLine = document.createElement('span');
+        const isNewest = i === 0 && lastModified != null;
+        pathLine.style.cssText = `flex: 1; min-width: 0; overflow-wrap: anywhere; word-break: break-word; ${isNewest ? 'color: #22c55e;' : 'opacity: 0.8;'}`;
+        let label = `• ${folderPath}`;
+        if (folderPath.includes('/General/')) label += ' (old default bucket)';
+        if (lastModified != null) label += ` (${timeAgo(lastModified)})`;
+        if (isNewest) label += ' ★ newest';
+        pathLine.textContent = label;
+        pathRow.appendChild(pathLine);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'profile-cta danger-btn';
+        deleteBtn.style.cssText = 'flex: 0 0 auto; padding: 2px 8px; font-size: 10px;';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.addEventListener('click', () => {
+          const ok = confirm(`Delete "${folderPath}" and all its files from ${repoHook || 'your repo'}?\n\nThis cannot be undone.`);
+          if (!ok) return;
+
+          deleteBtn.disabled = true;
+          deleteBtn.textContent = 'Deleting...';
+
+          chrome.runtime.sendMessage({ type: 'DELETE_REPO_FOLDER', folderPath, paths: files }, (result) => {
+            const r = result || { reason: 'error' };
+            if (r.ok === false) {
+              deleteBtn.disabled = false;
+              deleteBtn.textContent = 'Delete failed - retry';
+              return;
+            }
+            if (r.stats) renderStats(r.stats);
+            // Re-render from the fresh post-delete result - this row disappears
+            // if it was the only remaining duplicate for this slug.
+            renderDuplicates(r.duplicates);
+          });
+        });
+        pathRow.appendChild(deleteBtn);
+
+        entry.appendChild(pathRow);
+      });
+
+      duplicatesBody.appendChild(entry);
+    });
+
+    const hint = document.createElement('div');
+    hint.style.cssText = 'margin-top: 4px; padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, 0.1); opacity: 0.65;';
+    hint.textContent = 'Newest copy (green, ★) is usually the correct one to keep - delete the rest.';
+    duplicatesBody.appendChild(hint);
+  }
+
+  if (copyDuplicatesBtn) {
+    copyDuplicatesBtn.addEventListener('click', async () => {
+      const res = await chrome.storage.local.get(['tufhub_last_reconcile_result']);
+      const duplicates = (res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.duplicates) || [];
+      const lines = duplicates.flatMap(({ slug, folders }) => [
+        slug,
+        ...(folders || []).map(({ folderPath }) => `  git rm -r "${folderPath}"`)
+      ]);
+      await navigator.clipboard.writeText(lines.join('\n'));
+      copyDuplicatesBtn.innerText = 'Copied!';
+      setTimeout(() => { copyDuplicatesBtn.innerText = 'Copy list'; }, 2000);
+    });
+  }
+
   // Load state
-  chrome.storage.local.get(['tufhub_token', 'tufhub_username', 'tufhub_hook', 'stats'], async (res) => {
+  chrome.storage.local.get(['tufhub_token', 'tufhub_username', 'tufhub_hook', 'stats', 'tufhub_last_reconcile_result'], async (res) => {
     if (res.tufhub_token && res.tufhub_hook) {
       unauthSection.classList.add('hidden');
       authSection.classList.remove('hidden');
@@ -45,8 +162,10 @@ document.addEventListener('DOMContentLoaded', () => {
         devProfileLink.href = `https://github.com/${handle}`;
       }
       repoLink.href = `https://github.com/${res.tufhub_hook}`;
+      repoHook = res.tufhub_hook;
 
       renderStats(res.stats);
+      renderDuplicates(res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.duplicates);
 
       // Auto-sync existing repo stats if 0 solved or missing
       if (!res.stats || !res.stats.solved) {
@@ -83,6 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
       chrome.runtime.sendMessage({ type: 'RECONCILE_REPO' }, (result) => {
         const r = result || { reason: 'error' };
         if (r.stats) renderStats(r.stats);
+        renderDuplicates(r.duplicates);
 
         const label = (SYNC_REASON_LABELS[r.reason] || SYNC_REASON_LABELS.error)(r);
         syncRepoBtn.innerText = label;

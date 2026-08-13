@@ -11,6 +11,52 @@
 
 import { sanitizePathSegment } from '../util.js';
 
+// TUF's syllabus sidebar auto-highlights the active category/sub-category path on page
+// load - a far more reliable mainTopic/subTopic source than sniffing the URL slug/title,
+// since plenty of problem slugs (e.g. "level-order-traversal") don't contain a keyword
+// any regex chain below would recognize. Covers all 18 top-level DSA categories seen
+// across both the Basic and Advanced syllabus tabs. Unmapped labels (future TUF
+// categories) pass through as their own sanitized folder rather than being dropped.
+const SIDEBAR_TOPIC_MAP = {
+  'sorting': 'Sorting',
+  'arrays': 'Arrays',
+  'hashing': 'Hashing',
+  'binary search': 'Binary-Search',
+  'recursion': 'Recursion',
+  'linked-list': 'Linked-List',
+  'bit manipulation': 'Bit-Manipulation',
+  'greedy algorithms': 'Greedy',
+  'sliding window / 2 pointer': 'Sliding-Window',
+  'stack / queues': 'Stack-Queue',
+  'binary trees': 'Trees',
+  'binary search trees': 'Trees',
+  'heaps': 'Heaps',
+  'graphs': 'Graphs',
+  'dynamic programming': 'Dynamic-Programming',
+  'tries': 'Tries',
+  'strings (advanced algo)': 'Strings',
+  'maths': 'Maths'
+};
+
+function canonicalizeTopicLabel(label) {
+  if (!label) return '';
+  const key = label.toLowerCase().trim();
+  return SIDEBAR_TOPIC_MAP[key] || label;
+}
+
+function extractActiveSidebarTopic() {
+  try {
+    const mainEl = document.querySelector('.category-root-trigger--active-path');
+    const subEl = document.querySelector('.category-sub-trigger--active-path');
+    return {
+      mainLabel: mainEl ? mainEl.innerText.trim() : '',
+      subLabel: subEl ? subEl.innerText.trim() : ''
+    };
+  } catch (e) {
+    return { mainLabel: '', subLabel: '' };
+  }
+}
+
 export function resolveHierarchy(data = {}) {
   const pageUrl = data.url || window.location.href;
   let urlObj;
@@ -119,52 +165,74 @@ export function resolveHierarchy(data = {}) {
 
   const titleOrUrl = (pathname + ' ' + (data.title || '') + ' ' + subjectParam + ' ' + approachParam).toLowerCase();
 
-  if (titleOrUrl.includes('linked-list') || titleOrUrl.includes('linkedlist') || titleOrUrl.includes('ll') || titleOrUrl.includes('reverse-a-list')) {
-    mainTopic = 'Linked-List';
-  } else if (titleOrUrl.includes('binary-search') || titleOrUrl.includes('search-in-sorted') || titleOrUrl.includes('search-insert')) {
-    mainTopic = 'Binary-Search';
-  } else if (
-    titleOrUrl.includes('subsets') || titleOrUrl.includes('subset') ||
-    titleOrUrl.includes('recursion') || titleOrUrl.includes('recursive') ||
-    titleOrUrl.includes('combination') || titleOrUrl.includes('combinations') ||
-    titleOrUrl.includes('permutation') || titleOrUrl.includes('permutations') ||
-    titleOrUrl.includes('parentheses') || titleOrUrl.includes('parenthesis') ||
-    titleOrUrl.includes('phone-number') || titleOrUrl.includes('phone number') ||
-    titleOrUrl.includes('letter-combinations') || titleOrUrl.includes('letter combinations')
-  ) {
-    mainTopic = 'Recursion';
-  } else if (
+  // Backtracking has no equivalent category on TUF's own syllabus sidebar - it lives
+  // inside Recursion's generic sub-sections there - so it's checked first as an explicit
+  // override, ahead of both the DOM signal and the rest of the keyword chain below.
+  const isBacktracking = (
     titleOrUrl.includes('backtracking') || titleOrUrl.includes('n-queens') ||
     titleOrUrl.includes('sudoku') || titleOrUrl.includes('word-search') ||
     titleOrUrl.includes('rat-in-a-maze') || titleOrUrl.includes('m-coloring') ||
     titleOrUrl.includes('palindrome-partitioning')
-  ) {
+  );
+
+  const sidebarTopic = extractActiveSidebarTopic();
+
+  if (isBacktracking) {
     mainTopic = 'Backtracking';
-  } else if (titleOrUrl.includes('tree') || titleOrUrl.includes('bst') || titleOrUrl.includes('inorder') || titleOrUrl.includes('preorder') || titleOrUrl.includes('postorder')) {
-    mainTopic = 'Trees';
-  } else if (titleOrUrl.includes('graph') || titleOrUrl.includes('bfs') || titleOrUrl.includes('dfs') || titleOrUrl.includes('dijkstra') || titleOrUrl.includes('topological')) {
-    mainTopic = 'Graphs';
-  } else if (titleOrUrl.includes('dp') || titleOrUrl.includes('dynamic-programming') || titleOrUrl.includes('knapsack') || titleOrUrl.includes('lis') || titleOrUrl.includes('partition-equal')) {
-    mainTopic = 'Dynamic-Programming';
-  } else if (titleOrUrl.includes('string') || titleOrUrl.includes('anagram') || titleOrUrl.includes('palindrome')) {
-    mainTopic = 'Strings';
-  } else if (titleOrUrl.includes('stack') || titleOrUrl.includes('queue') || titleOrUrl.includes('lru-cache') || titleOrUrl.includes('lfu-cache')) {
-    mainTopic = 'Stack-Queue';
-  } else if (titleOrUrl.includes('bit') || titleOrUrl.includes('xor') || titleOrUrl.includes('two-odd') || titleOrUrl.includes('single-number')) {
-    mainTopic = 'Bit-Manipulation';
-  } else if (titleOrUrl.includes('greedy') || titleOrUrl.includes('n-meetings') || titleOrUrl.includes('fractional-knapsack')) {
-    mainTopic = 'Greedy';
-  } else if (titleOrUrl.includes('heap') || titleOrUrl.includes('kth-largest') || titleOrUrl.includes('median') || titleOrUrl.includes('priority-queue')) {
-    mainTopic = 'Heaps';
-  } else if (titleOrUrl.includes('sliding-window') || titleOrUrl.includes('max-consecutive') || titleOrUrl.includes('two-pointer')) {
-    mainTopic = 'Sliding-Window';
-  } else if (titleOrUrl.includes('array') || titleOrUrl.includes('sort') || titleOrUrl.includes('pascal') || titleOrUrl.includes('matrix') || titleOrUrl.includes('two-sum') || titleOrUrl.includes('3sum') || titleOrUrl.includes('4sum')) {
-    mainTopic = 'Arrays';
   } else {
-    mainTopic = extractTopicFromPathname(pathname) || 'General';
+    const domMainTopic = canonicalizeTopicLabel(sidebarTopic.mainLabel);
+
+    if (domMainTopic) {
+      mainTopic = domMainTopic;
+    } else if (titleOrUrl.includes('linked-list') || titleOrUrl.includes('linkedlist') || titleOrUrl.includes('ll') || titleOrUrl.includes('reverse-a-list')) {
+      mainTopic = 'Linked-List';
+    } else if (titleOrUrl.includes('binary-search') || titleOrUrl.includes('search-in-sorted') || titleOrUrl.includes('search-insert')) {
+      mainTopic = 'Binary-Search';
+    } else if (
+      titleOrUrl.includes('subsets') || titleOrUrl.includes('subset') ||
+      titleOrUrl.includes('recursion') || titleOrUrl.includes('recursive') ||
+      titleOrUrl.includes('combination') || titleOrUrl.includes('combinations') ||
+      titleOrUrl.includes('permutation') || titleOrUrl.includes('permutations') ||
+      titleOrUrl.includes('parentheses') || titleOrUrl.includes('parenthesis') ||
+      titleOrUrl.includes('phone-number') || titleOrUrl.includes('phone number') ||
+      titleOrUrl.includes('letter-combinations') || titleOrUrl.includes('letter combinations')
+    ) {
+      mainTopic = 'Recursion';
+    } else if (
+      titleOrUrl.includes('tree') || titleOrUrl.includes('bst') ||
+      titleOrUrl.includes('inorder') || titleOrUrl.includes('preorder') || titleOrUrl.includes('postorder') ||
+      titleOrUrl.includes('level-order') || titleOrUrl.includes('zigzag') || titleOrUrl.includes('boundary') ||
+      titleOrUrl.includes('vertical-order') || titleOrUrl.includes('top-view') || titleOrUrl.includes('bottom-view') ||
+      titleOrUrl.includes('diameter') || titleOrUrl.includes('lca') || titleOrUrl.includes('symmetric') ||
+      titleOrUrl.includes('balanced-tree') || titleOrUrl.includes('maximum-depth') || titleOrUrl.includes('minimum-depth') ||
+      titleOrUrl.includes('flatten') || titleOrUrl.includes('invert') || titleOrUrl.includes('path-sum') ||
+      titleOrUrl.includes('root-to-node') || titleOrUrl.includes('serialize')
+    ) {
+      mainTopic = 'Trees';
+    } else if (titleOrUrl.includes('graph') || titleOrUrl.includes('bfs') || titleOrUrl.includes('dfs') || titleOrUrl.includes('dijkstra') || titleOrUrl.includes('topological')) {
+      mainTopic = 'Graphs';
+    } else if (titleOrUrl.includes('dp') || titleOrUrl.includes('dynamic-programming') || titleOrUrl.includes('knapsack') || titleOrUrl.includes('lis') || titleOrUrl.includes('partition-equal')) {
+      mainTopic = 'Dynamic-Programming';
+    } else if (titleOrUrl.includes('string') || titleOrUrl.includes('anagram') || titleOrUrl.includes('palindrome')) {
+      mainTopic = 'Strings';
+    } else if (titleOrUrl.includes('stack') || titleOrUrl.includes('queue') || titleOrUrl.includes('lru-cache') || titleOrUrl.includes('lfu-cache')) {
+      mainTopic = 'Stack-Queue';
+    } else if (titleOrUrl.includes('bit') || titleOrUrl.includes('xor') || titleOrUrl.includes('two-odd') || titleOrUrl.includes('single-number')) {
+      mainTopic = 'Bit-Manipulation';
+    } else if (titleOrUrl.includes('greedy') || titleOrUrl.includes('n-meetings') || titleOrUrl.includes('fractional-knapsack')) {
+      mainTopic = 'Greedy';
+    } else if (titleOrUrl.includes('heap') || titleOrUrl.includes('kth-largest') || titleOrUrl.includes('median') || titleOrUrl.includes('priority-queue')) {
+      mainTopic = 'Heaps';
+    } else if (titleOrUrl.includes('sliding-window') || titleOrUrl.includes('max-consecutive') || titleOrUrl.includes('two-pointer')) {
+      mainTopic = 'Sliding-Window';
+    } else if (titleOrUrl.includes('array') || titleOrUrl.includes('sort') || titleOrUrl.includes('pascal') || titleOrUrl.includes('matrix') || titleOrUrl.includes('two-sum') || titleOrUrl.includes('3sum') || titleOrUrl.includes('4sum')) {
+      mainTopic = 'Arrays';
+    } else {
+      mainTopic = extractTopicFromPathname(pathname) || 'General';
+    }
   }
 
-  subTopic = extractSubTopicFromDOM() || 'General';
+  subTopic = canonicalizeTopicLabel(sidebarTopic.subLabel) || extractSubTopicFromDOM() || 'General';
 
   const cleanMain = sanitizePathSegment(mainTopic);
   const cleanSub = sanitizePathSegment(subTopic);

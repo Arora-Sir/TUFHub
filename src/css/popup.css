@@ -26,8 +26,35 @@ html, body {
   background-color: var(--bg-primary);
   color: var(--text-main);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  overflow: hidden;
+  overflow-x: hidden;
   font-size: 15px;
+}
+
+/* A max-height still lets the real rendered height vary between states, and
+   that resize is what makes Chrome/Brave reposition the popup to keep it
+   on-screen - the "jumping" bug. An unconditional fixed height means the
+   frame is measured once at first paint and never has a reason to resize
+   again, regardless of what's expanded/collapsed inside - stable no matter
+   what number is picked, only how much slack there is depends on that.
+   Measured against the real, complete stylesheet served over local HTTP
+   (not a hand-copied subset - that undercounted earlier): baseline (nothing
+   expanded, the default view essentially every popup-open sees) is 506px.
+   512px = that baseline + a thin buffer for minor variance (longer GitHub
+   usernames, different stat digit counts) - trimmed down from an earlier,
+   more generous buffer per user feedback that the bottom padding still read
+   as too much. Sync Health is collapsed by default and only expands on a
+   deliberate click - same "active, temporary state" category as Duplicates
+   below - so it's sized for the default view, not for "Sync Health open too"
+   (542px): opening it needs a small scroll to see its full detail section,
+   an acceptable trade for near-zero wasted space in the state everyone sees
+   by default. Duplicates open with real entries pushes further still
+   (695-758px measured) and needs real internal scroll - an active, temporary
+   state you're mid-resolving, not the default view, so scrolling there is
+   normal, expected UX, not a regression of the original "popup jumps
+   position" bug. */
+html {
+  height: 512px;
+  overflow-y: auto;
 }
 
 .popup-container {

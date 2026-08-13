@@ -61,13 +61,16 @@ export function addLeadingZeros(slug) {
 
 export function sanitizePathSegment(segment) {
   if (!segment) return 'General';
-  // Remove parentheses, special characters, and normalize spaces
+  // Hyphenate slashes first (e.g. DOM-scraped labels like "Sliding Window / 2 Pointer")
+  // so they can't survive into a folderPath template string and create an unintended
+  // nested directory - only then strip the remaining special characters and normalize spaces.
   let cleaned = segment
     .toString()
+    .replace(/\s*[\/\\]\s*/g, '-')
     .replace(/[()?:*<>"|]/g, '')
     .replace(/\s+/g, '-')
     .trim();
-  
+
   if (cleaned.length === 0 || cleaned.length > 50) return 'General';
   return cleaned;
 }

@@ -539,6 +539,32 @@ async function fetchTree(token, hook, branch) {
 }
 
 /**
+ * Last-commit date for a path (directory or file). TUFHub commits a
+ * problem's solution + README together in one atomic commit, so any path
+ * under a folder gives an accurate "last touched" date for the whole folder.
+ * Only called for folders already known to be duplicates - bounded, not a
+ * blanket cost added to every reconcile. Non-fatal on failure: the caller
+ * just won't have a timestamp to show for that folder.
+ */
+async function fetchLastCommitDate(token, hook, path) {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${hook}/commits?path=${encodeURIComponent(path)}&per_page=1`, {
+      headers: {
+        Authorization: `token ${token}`,
+        Accept: 'application/vnd.github.v3+json'
+      }
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const commit = json[0] && json[0].commit;
+    const dateStr = commit && (commit.committer && commit.committer.date || commit.author && commit.author.date);
+    return dateStr ? new Date(dateStr).getTime() : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
  * Reconstructs the display label for a file from its own name, matching
  * exactly how deriveFileLabel() names files at sync time - so a name like
  * "Optimal.java" round-trips to label "Optimal", and legacy "solution.java"
@@ -552,14 +578,16 @@ function labelFromFileName(fileName) {
   return base;
 }
 
-export async function reconcileRepoFromTree(token, hook) {
+export async function reconcileRepoFromTree(token, hook, { skipCooldown = false } = {}) {
   if (!token || !hook) return { ok: false, reason: 'error', message: 'Not connected.' };
 
-  const cooldownData = await safeGetStorage('tufhub_last_reconcile_at');
-  const lastReconcile = cooldownData.tufhub_last_reconcile_at || 0;
-  const sinceLast = Date.now() - lastReconcile;
-  if (sinceLast < RECONCILE_COOLDOWN_MS) {
-    return { ok: true, reason: 'cooldown', remainingMs: RECONCILE_COOLDOWN_MS - sinceLast };
+  if (!skipCooldown) {
+    const cooldownData = await safeGetStorage('tufhub_last_reconcile_at');
+    const lastReconcile = cooldownData.tufhub_last_reconcile_at || 0;
+    const sinceLast = Date.now() - lastReconcile;
+    if (sinceLast < RECONCILE_COOLDOWN_MS) {
+      return { ok: true, reason: 'cooldown', remainingMs: RECONCILE_COOLDOWN_MS - sinceLast };
+    }
   }
 
   let res;
@@ -622,12 +650,17 @@ export async function reconcileRepoFromTree(token, hook) {
   const reconciledProblems = {};
   const reconciledShas = {};
   const liveSlugs = new Set();
+  const slugToFolders = new Map(); // slug -> [folderPath, ...] - same slug in 2+ folders means
+  // reconciledProblems[slug] below silently overwrites one with the other; surfaced as
+  // `duplicates` in the return value so the caller can warn instead of losing one silently.
 
   for (const [folderPath, entry] of folders) {
     if (!entry.hasReadme || entry.files.length === 0) continue;
     const parts = folderPath.split('/');
     const slug = parts[parts.length - 1];
     liveSlugs.add(slug);
+    if (!slugToFolders.has(slug)) slugToFolders.set(slug, []);
+    slugToFolders.get(slug).push(folderPath);
 
     const files = {};
     const shas = {};
@@ -665,6 +698,18 @@ export async function reconcileRepoFromTree(token, hook) {
     }
     reconciledShas[slug] = shas;
   }
+
+  const duplicateSlugEntries = Array.from(slugToFolders.entries()).filter(([, folderPaths]) => folderPaths.length > 1);
+  const duplicates = await Promise.all(duplicateSlugEntries.map(async ([slug, folderPaths]) => ({
+    slug,
+    folders: await Promise.all(folderPaths.map(async folderPath => {
+      const entry = folders.get(folderPath);
+      const paths = entry.files.map(f => `${folderPath}/${f.name}`);
+      if (entry.hasReadme) paths.push(`${folderPath}/README.md`);
+      const lastModified = await fetchLastCommitDate(token, hook, folderPath);
+      return { folderPath, files: paths, lastModified };
+    }))
+  })));
 
   const solvedSlugs = Object.keys(reconciledProblems);
   const counts = { solved: solvedSlugs.length, easy: 0, medium: 0, hard: 0 };
@@ -739,7 +784,7 @@ export async function reconcileRepoFromTree(token, hook) {
   if (unchanged) {
     await safeSetStorage({ stats: reconciledStats, tufhub_code_hashes: purgedHashes });
     await safeSetStorage({ tufhub_last_reconcile_at: Date.now() });
-    return { ok: true, reason: 'unchanged', stats: reconciledStats };
+    return { ok: true, reason: 'unchanged', stats: reconciledStats, duplicates };
   }
 
   let uploadResult;
@@ -770,6 +815,7 @@ export async function reconcileRepoFromTree(token, hook) {
     reason: 'synced',
     stats: reconciledStats,
     removedSlugs,
+    duplicates,
     commitSha: uploadResult ? uploadResult.commitSha : '',
     commitUrl: uploadResult ? uploadResult.htmlUrl : ''
   };
