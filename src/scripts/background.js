@@ -198,13 +198,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           let result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
           // GitHub's tree-read API can very briefly lag a commit that just
           // landed - if the folder we just deleted still shows up, the read
-          // raced the write. One short retry clears it instead of the popup
-          // showing a folder as still there when it's actually already gone.
+          // raced the write. One short retry improves general freshness, but
+          // isn't relied on for correctness below - a fixed wait is never
+          // actually guaranteed long enough under real contention.
           const stillThere = (result.duplicates || []).some(d =>
             (d.folders || []).some(f => f.folderPath === request.folderPath));
           if (stillThere) {
             await new Promise(r => setTimeout(r, 1500));
             result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
+          }
+          // Deterministic guarantee, independent of read timing: deleteFiles()
+          // above only resolves once its own retry loop confirms the ref
+          // update actually landed, so this path can never legitimately still
+          // be a duplicate - strip it regardless of what the tree-read says.
+          if (result.duplicates) {
+            result = {
+              ...result,
+              duplicates: result.duplicates
+                .map(d => ({ ...d, folders: (d.folders || []).filter(f => f.folderPath !== request.folderPath) }))
+                .filter(d => (d.folders || []).length > 1)
+            };
           }
           return result;
         })

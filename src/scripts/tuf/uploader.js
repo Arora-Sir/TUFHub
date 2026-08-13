@@ -63,6 +63,15 @@ async function resolveBranchAndHead(token, hook) {
   throw new Error('Could not resolve a branch HEAD for this repository.');
 }
 
+// Growing + jittered backoff, not a flat interval - under genuine concurrent
+// writers (a second tab syncing while the popup deletes a folder, confirmed
+// to actually happen via a real "Ref Update Conflict" failure), repeated
+// writers retrying at the exact same flat interval keep re-colliding on the
+// same branch ref instead of spreading out.
+function retryBackoffMs(attempt) {
+  return 300 * (attempt + 1) + Math.floor(Math.random() * 200);
+}
+
 /**
  * Commits a set of pre-built tree entries as ONE atomic git commit via the
  * Git Data API (tree -> commit -> ref update). Shared tail for both writing
@@ -72,7 +81,7 @@ async function resolveBranchAndHead(token, hook) {
  * @param {Array<{path: string, mode: string, type: string, sha: string|null}>} treeEntries
  * @returns {Promise<{commitSha: string, htmlUrl: string, treeSha: string}>}
  */
-async function commitTreeEntries(token, hook, treeEntries, commitMessage, retries = 3) {
+async function commitTreeEntries(token, hook, treeEntries, commitMessage, retries = 5) {
   let lastErr;
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
@@ -119,7 +128,7 @@ async function commitTreeEntries(token, hook, treeEntries, commitMessage, retrie
       if (refRes.status === 409 || refRes.status === 422) {
         console.warn(`[TUFHub Debug] Ref update conflict on ${branch} (attempt ${attempt + 1}/${retries}). Retrying against new HEAD...`);
         lastErr = new Error(`GitHub Ref Update Conflict (${refRes.status})`);
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, retryBackoffMs(attempt)));
         continue;
       }
 
@@ -127,7 +136,7 @@ async function commitTreeEntries(token, hook, treeEntries, commitMessage, retrie
     } catch (e) {
       lastErr = e;
       if (attempt < retries - 1) {
-        await new Promise(r => setTimeout(r, 300));
+        await new Promise(r => setTimeout(r, retryBackoffMs(attempt)));
       }
     }
   }
@@ -164,7 +173,7 @@ async function createBlob(token, hook, file, retries) {
   throw lastErr;
 }
 
-export async function commitFiles(token, hook, files, commitMessage, retries = 3) {
+export async function commitFiles(token, hook, files, commitMessage, retries = 5) {
   if (!files || files.length === 0) {
     throw new Error('commitFiles called with no files.');
   }
@@ -189,7 +198,7 @@ export async function commitFiles(token, hook, files, commitMessage, retries = 3
  * @param {string[]} paths
  * @returns {Promise<{commitSha: string, htmlUrl: string, treeSha: string}>}
  */
-export async function deleteFiles(token, hook, paths, commitMessage, retries = 3) {
+export async function deleteFiles(token, hook, paths, commitMessage, retries = 5) {
   if (!paths || paths.length === 0) {
     throw new Error('deleteFiles called with no paths.');
   }
