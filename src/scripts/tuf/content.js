@@ -6,7 +6,6 @@
 
 import { buildProblemReadme } from './readme.js';
 import { buildRootReadmeFile } from './rootReadme.js';
-import { commitFiles } from './uploader.js';
 import { resolveHierarchy } from './router.js';
 import {
   getStats,
@@ -21,8 +20,7 @@ import {
   isExtensionContextAlive,
   pushDiag,
   updateHealth,
-  isCodeIdentical,
-  updateCodeHash
+  isCodeIdentical
 } from './stats.js';
 import { showToast } from './toast.js';
 import { LANGUAGE_MAP, convertToSlug, addLeadingZeros, deriveCodeFileName, deriveFileLabel } from '../util.js';
@@ -38,7 +36,17 @@ const DOM_WATCH_MS = 5 * 60 * 1000;
 // resolve within 5s of each other. Still guards its original purpose: the
 // interceptor's CustomEvent and the DOM watcher's own poll both firing for the
 // exact same physical verdict.
-let lastSyncTimestamps = {};
+//
+// Anchored on window, not a fresh module-scope object, because background.js
+// can legitimately re-inject this bundle into the same live tab (SPA
+// navigation re-arm below) - each injection gets a brand new module scope, so
+// a plain `{}` here would give every re-injected copy its own blind dedup map
+// and let them all race commitFiles() on the same accepted-submission event.
+// Sharing the object means whichever handler runs first (event listeners fire
+// synchronously up to their first await) claims the key before the next one
+// checks it.
+if (!window.__TUFHUB_LAST_SYNC_TS__) window.__TUFHUB_LAST_SYNC_TS__ = {};
+let lastSyncTimestamps = window.__TUFHUB_LAST_SYNC_TS__;
 let isUserSubmitting = false;
 let submitTimeout = null;
 let verdictInterval = null;
@@ -75,6 +83,40 @@ function safeSendMessage(message) {
     const result = chrome.runtime.sendMessage(message);
     if (result && typeof result.catch === 'function') result.catch(() => {});
   } catch (e) {}
+}
+
+/**
+ * Awaited (not fire-and-forget) unlike safeSendMessage above - the caller
+ * needs the commit result/error to drive its own try/catch and toast logic.
+ * Routes the actual commitFiles() call through background.js's serialized
+ * write queue so this tab's calls can never race another tab's, the popup's
+ * delete/reconcile, or its own overlapping callers - content.js keeps no
+ * lock of its own.
+ *
+ * Reconstructs a real Error on failure so executeGitHubSync's existing
+ * catch-block message-sniffing (403/401/404/network-error regexes) keeps
+ * working unchanged - only the message TEXT crosses the sendMessage
+ * boundary, since thrown Error objects don't structurally clone.
+ */
+async function sendGitHubCommitMessage(files, commitMessage, slug, codeFileName, code) {
+  if (!isExtensionContextAlive()) {
+    throw new Error('Extension context invalidated.');
+  }
+  let response;
+  try {
+    response = await chrome.runtime.sendMessage({
+      type: 'GITHUB_COMMIT_FILES', files, commitMessage, slug, codeFileName, code
+    });
+  } catch (e) {
+    throw new Error(e && e.message ? e.message : 'Failed to reach background worker.');
+  }
+  if (!response) {
+    throw new Error('No response from background worker (GITHUB_COMMIT_FILES).');
+  }
+  if (response.success === false) {
+    throw new Error(response.error || 'GitHub commit failed.');
+  }
+  return response; // { success: true, skipped, commitSha?, htmlUrl?, treeSha? }
 }
 
 async function onAcceptedSubmission(event) {
@@ -273,12 +315,25 @@ async function executeGitHubSync(data) {
     ];
     if (rootReadmeFile) files.push(rootReadmeFile);
 
-    const commitRes = await commitFiles(
-      token,
-      hook,
+    const commitRes = await sendGitHubCommitMessage(
       files,
-      `Sync ${rawTitle} [${mainCategory}] - TUFHub`
+      `Sync ${rawTitle} [${mainCategory}] - TUFHub`,
+      slug,
+      codeFileName,
+      data.code
     );
+
+    if (commitRes.skipped) {
+      // Caught here, not earlier: this resubmission looked new when this
+      // function's own isCodeIdentical check ran above, but another queued
+      // write for the same slug+file landed first while this one waited its
+      // turn in background.js's serialized write queue.
+      console.log(`[TUFHub Sync Engine] ⏳ Code is exactly the same for ${slug}/${codeFileName} (caught at write time). Skipping duplicate sync.`);
+      await pushDiag('SKIPPED', 'CODE_UNCHANGED', `${slug}/${codeFileName}`);
+      showToast(`Exact same code already synced for ${rawTitle}.`, 'info');
+      return { ok: true, reasonCode: 'CODE_UNCHANGED' };
+    }
+
     const commitSha = commitRes.commitSha || '';
     const htmlUrl = commitRes.htmlUrl || '';
     console.log(`[TUFHub Sync Engine] ✅ Committed ${files.length} file(s) in one commit (${commitSha.slice(0, 7)})!`);
@@ -313,8 +368,6 @@ async function executeGitHubSync(data) {
     } else {
       showToast(toastMessage, 'success');
     }
-
-    await updateCodeHash(slug, codeFileName, data.code);
 
     return { ok: true, reasonCode: '' };
 
@@ -390,31 +443,34 @@ async function flushOfflineQueue() {
 // -------------------------------------------------------------
 // DOM Verdict Watcher (Zero-Lag Backup Channel)
 // -------------------------------------------------------------
+function handleSubmitClick(e) {
+  const target = e.target.closest('button, [role="button"], a, div[class*="button"]');
+  if (!target) return;
+
+  const text = (target.innerText || target.getAttribute('aria-label') || target.title || '').toLowerCase();
+  const className = (target.className || '').toString().toLowerCase();
+
+  if (text.includes('try') || text.includes('run') || text.includes('reset') || text.includes('console')) {
+    return;
+  }
+
+  const isSubmit = text.includes('submit') || className.includes('submit');
+  if (isSubmit) {
+    console.log('[TUFHub DOM Watcher] 🚀 Submit button click detected! Watching DOM for verdict...');
+    registerSubmitIntent();
+  }
+}
+
+function handleSubmitKeydown(e) {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'Enter' || e.keyCode === 13)) {
+    console.log('[TUFHub DOM Watcher] 🚀 Ctrl+Enter shortcut detected! Watching DOM for verdict...');
+    registerSubmitIntent();
+  }
+}
+
 function setupSubmitClickListeners() {
-  document.addEventListener('click', (e) => {
-    const target = e.target.closest('button, [role="button"], a, div[class*="button"]');
-    if (!target) return;
-
-    const text = (target.innerText || target.getAttribute('aria-label') || target.title || '').toLowerCase();
-    const className = (target.className || '').toString().toLowerCase();
-
-    if (text.includes('try') || text.includes('run') || text.includes('reset') || text.includes('console')) {
-      return;
-    }
-
-    const isSubmit = text.includes('submit') || className.includes('submit');
-    if (isSubmit) {
-      console.log('[TUFHub DOM Watcher] 🚀 Submit button click detected! Watching DOM for verdict...');
-      registerSubmitIntent();
-    }
-  }, true);
-
-  document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'Enter' || e.keyCode === 13)) {
-      console.log('[TUFHub DOM Watcher] 🚀 Ctrl+Enter shortcut detected! Watching DOM for verdict...');
-      registerSubmitIntent();
-    }
-  }, true);
+  singletonListener(document, 'click', handleSubmitClick, '__TUFHUB_CLICK_LISTENER__', true);
+  singletonListener(document, 'keydown', handleSubmitKeydown, '__TUFHUB_KEYDOWN_LISTENER__', true);
 }
 
 /**
@@ -506,6 +562,42 @@ function extractTitleFromUrl() {
   return '';
 }
 
+function handleDiagEvent(event) {
+  const d = (event && event.detail) || {};
+  pushDiag(d.stage || 'INTERCEPTOR', d.reasonCode || '', d.detail || '');
+  if (d.stage === 'ARMED') {
+    updateHealth({ lastSubmitIntentAt: Date.now(), lastSubmitIntentUrl: window.location.href });
+  } else if (d.stage === 'VERDICT_ACCEPTED') {
+    updateHealth({ lastVerdictAt: Date.now() });
+  }
+}
+
+function handleUnhandledRejection(event) {
+  const reason = event && event.reason;
+  const message = (reason && reason.message) ? reason.message : String(reason);
+  if (/tufhub/i.test(message) || /github/i.test(message)) {
+    pushDiag('UNHANDLED_REJECTION', 'UNCAUGHT', message);
+  }
+}
+
+/**
+ * Registers `handler` for `type` on `target`, first removing whatever handler
+ * a PRIOR injection of this same bundle registered under `stateKey`. window
+ * (and, transitively, document) persists across repeat chrome.scripting
+ * .executeScript() calls into the same isolated world, but each call gets a
+ * fresh module scope - so without this, every re-injection (background.js
+ * re-arms this script on every SPA navigation, and can legitimately fire more
+ * than once for one navigation) stacks another live listener instead of
+ * replacing the old one. N stacked listeners means N independent GitHub
+ * commits for one accepted submission.
+ */
+function singletonListener(target, type, handler, stateKey, useCapture = false) {
+  const prev = window[stateKey];
+  if (prev) target.removeEventListener(type, prev, useCapture);
+  window[stateKey] = handler;
+  target.addEventListener(type, handler, useCapture);
+}
+
 // -------------------------------------------------------------
 // Initialization (idempotent - the background worker re-injects this script
 // after SPA navigations, and duplicate listeners would double-sync)
@@ -514,33 +606,22 @@ function initTUFHub() {
   const version = extensionVersion();
   console.log(`%c[TUFHub Content Script v${version}] 📥 Multi-category sync engine initialized.`, 'color: #8b5cf6; font-weight: bold; font-size: 13px;');
 
-  window.addEventListener('TUFHUB_ACCEPTED_SUBMISSION', onAcceptedSubmission);
+  singletonListener(window, 'TUFHUB_ACCEPTED_SUBMISSION', onAcceptedSubmission, '__TUFHUB_ACCEPTED_LISTENER__');
 
   // Relay interceptor diagnostics (MAIN world has no chrome.storage access).
-  window.addEventListener('TUFHUB_DIAG', (event) => {
-    const d = (event && event.detail) || {};
-    pushDiag(d.stage || 'INTERCEPTOR', d.reasonCode || '', d.detail || '');
-    if (d.stage === 'ARMED') {
-      updateHealth({ lastSubmitIntentAt: Date.now(), lastSubmitIntentUrl: window.location.href });
-    } else if (d.stage === 'VERDICT_ACCEPTED') {
-      updateHealth({ lastVerdictAt: Date.now() });
-    }
-  });
+  singletonListener(window, 'TUFHUB_DIAG', handleDiagEvent, '__TUFHUB_DIAG_LISTENER__');
 
-  window.addEventListener('online', flushOfflineQueue);
+  singletonListener(window, 'online', flushOfflineQueue, '__TUFHUB_ONLINE_LISTENER__');
 
   // Nothing else surfaces a throw inside the async submission handler.
-  window.addEventListener('unhandledrejection', (event) => {
-    const reason = event && event.reason;
-    const message = (reason && reason.message) ? reason.message : String(reason);
-    if (/tufhub/i.test(message) || /github/i.test(message)) {
-      pushDiag('UNHANDLED_REJECTION', 'UNCAUGHT', message);
-    }
-  });
+  singletonListener(window, 'unhandledrejection', handleUnhandledRejection, '__TUFHUB_REJECTION_LISTENER__');
 
   // Liveness probe used by the background worker before re-injecting.
   try {
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (window.__TUFHUB_PING_LISTENER__) {
+      chrome.runtime.onMessage.removeListener(window.__TUFHUB_PING_LISTENER__);
+    }
+    const pingListener = (request, sender, sendResponse) => {
       if (request && request.type === 'TUFHUB_PING') {
         sendResponse({
           alive: true,
@@ -551,7 +632,9 @@ function initTUFHub() {
         return true;
       }
       return false;
-    });
+    };
+    window.__TUFHUB_PING_LISTENER__ = pingListener;
+    chrome.runtime.onMessage.addListener(pingListener);
   } catch (e) {}
 
   updateHealth({
