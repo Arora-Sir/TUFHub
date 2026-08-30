@@ -19,7 +19,7 @@
 
 <p align="center">
   <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" rel="noopener noreferrer">
-    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.3.0-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-v1.4.4-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
   </a>
   <a href="https://github.com/Arora-Sir/TUFHub/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
@@ -94,7 +94,7 @@ Commits code solutions with clean folder hierarchy, language extensions, and for
 - **Live Extension Popup**: Tracks Solved, Easy, Medium, Hard counts with a 1-click **Sync** button that reconciles against the actual repository tree - if you delete a problem folder on GitHub, Sync removes it from the master index too, not just from your local view.
 - **Sync Health Panel**: Real-time tab hook status, last successful commit link, and a 50-event diagnostic log in the popup.
 - **Conflict-Safe Commits**: Sequential queue prevents Git 409 commit conflicts.
-- **Offline Queue**: Queues syncs when offline and flushes automatically when the connection is restored.
+- **Self-Healing Sync Queue**: Queues syncs when offline, or when GitHub itself briefly lags right after a write, and flushes automatically - no resubmitting, no manual retry.
 
 ---
 
