@@ -202,10 +202,17 @@ function extractCodeFromMonacoFallback() {
 }
 
 /**
+ * @param {{isReplay?: boolean}} [opts] - isReplay is set only by flushOfflineQueue
+ * replaying a previously-queued item. It suppresses the queue-push and the
+ * per-item toast/badge on a repeat failure - flushOfflineQueue already owns
+ * this item's retention (its own remaining[] bookkeeping) and shows one
+ * consolidated toast for the whole pass, so re-enqueueing here too would
+ * race flushOfflineQueue's own read-modify-write of the same storage key.
  * @returns {Promise<{ok: boolean, reasonCode: string}>} so the offline-queue
  * flush can tell a real success from a swallowed failure.
  */
-async function executeGitHubSync(data) {
+async function executeGitHubSync(data, opts = {}) {
+  const isReplay = !!opts.isReplay;
   let rawTitle = 'Unknown Problem';
 
   // Everything below runs inside the try. In the previous build the slug/route
@@ -389,13 +396,36 @@ async function executeGitHubSync(data) {
       /failed to fetch|networkerror|network error|load failed/i.test(message);
 
     if (!navigator.onLine || isNetworkError) {
-      await enqueueOfflineSync(data);
+      if (!isReplay) await enqueueOfflineSync(data);
       await pushDiag('QUEUED', 'NO_INTERNET', message);
       await updateHealth({ lastFailureAt: Date.now(), lastFailureReason: 'NO_INTERNET' });
-      const q = await getOfflineQueue();
-      safeSendMessage({ type: 'SET_BADGE', state: 'queued', count: q.length });
-      showToast('Network unavailable. Queued for auto-sync when back online.', 'info', 'NO_INTERNET');
+      if (!isReplay) {
+        const q = await getOfflineQueue();
+        safeSendMessage({ type: 'SET_BADGE', state: 'queued', count: q.length });
+        showToast('Network unavailable. Queued for auto-sync when back online.', 'info', 'NO_INTERNET');
+      }
       return { ok: false, reasonCode: 'NO_INTERNET' };
+    }
+
+    // GitHub's git-refs endpoint can stay briefly inconsistent right after a
+    // write to the same branch, even with zero competing writers - confirmed
+    // via repo commit history showing no other writer in the window, on a
+    // repo with a single collaborator and no webhooks/Actions/branch
+    // protection. commitTreeEntries already retries 5x with a fresh HEAD read
+    // each time (uploader.js); this is what's left after that's exhausted.
+    // Matched on a literal prefix we control (uploader.js's thrown message),
+    // not GitHub's free-text detail appended after it, so this stays reliable
+    // regardless of what that text ever contains.
+    if (message.includes('Ref Update Conflict')) {
+      if (!isReplay) await enqueueOfflineSync(data);
+      await pushDiag('QUEUED', 'GITHUB_SYNC_LAG', message);
+      await updateHealth({ lastFailureAt: Date.now(), lastFailureReason: `GITHUB_SYNC_LAG: ${message}` });
+      if (!isReplay) {
+        const q = await getOfflineQueue();
+        safeSendMessage({ type: 'SET_BADGE', state: 'queued', count: q.length });
+        showToast('GitHub is still catching up from your last sync. This will retry automatically.', 'info', 'GITHUB_SYNC_LAG');
+      }
+      return { ok: false, reasonCode: 'GITHUB_SYNC_LAG' };
     }
 
     let reasonCode = 'SYNC_ERROR';
@@ -413,28 +443,77 @@ async function executeGitHubSync(data) {
   }
 }
 
+// Flush-level retries for one queued item, not commitTreeEntries's own
+// internal per-attempt retries. Each flush attempt already retries up to 5x
+// internally over ~12-15s, so 6 flush-level attempts (spread across page
+// navigations / reconnects, potentially minutes to hours apart) is generous
+// for a genuinely transient GitHub-side lag while still bounding a
+// hypothetically permanent conflict instead of retrying it forever.
+const MAX_QUEUE_ATTEMPTS = 6;
+
 async function flushOfflineQueue() {
   const queue = await getOfflineQueue();
   if (queue.length === 0) return;
 
-  console.log(`[TUFHub Sync Engine] 📡 Flushing ${queue.length} offline items...`);
-  showToast(`Internet restored. Retrying ${queue.length} queued syncs...`, 'syncing');
+  // Not "offline items" - the queue also holds ref-conflict retries queued
+  // while fully online, so this copy (and the toast below) stays neutral.
+  console.log(`[TUFHub Sync Engine] 📡 Retrying ${queue.length} queued item(s)...`);
+  showToast(`Retrying ${queue.length} queued sync(s)...`, 'syncing');
 
   // Retain anything that does not actually land. The previous build cleared the
   // queue up front, so a failed replay - or a tab close mid-flush - lost the
   // solution permanently.
+  const processedIds = new Set(queue.map(item => item.id));
   const remaining = [];
+  let gaveUpAny = false;
+
   for (const item of queue) {
+    const attempts = (item.attempts || 0) + 1;
+    let failed = false;
+    let lastReasonCode = 'unknown';
     try {
-      const result = await executeGitHubSync(item.syncData);
-      if (!result || !result.ok) remaining.push(item);
+      const result = await executeGitHubSync(item.syncData, { isReplay: true });
+      if (!result || !result.ok) {
+        failed = true;
+        lastReasonCode = (result && result.reasonCode) || 'unknown';
+      }
     } catch (e) {
       console.error('[TUFHub Sync Engine] ❌ Offline queue flush error:', e);
-      remaining.push(item);
+      failed = true;
+      lastReasonCode = (e && e.message) || 'threw';
+    }
+
+    if (!failed) continue;
+
+    if (attempts >= MAX_QUEUE_ATTEMPTS) {
+      gaveUpAny = true;
+      await pushDiag('FAILED', 'QUEUE_GAVE_UP', `${item.syncData?.title || 'item'} - gave up after ${attempts} attempts (${lastReasonCode})`);
+    } else {
+      remaining.push({ ...item, attempts });
     }
   }
 
-  await setOfflineQueue(remaining);
+  // Reconcile against a fresh read instead of blindly overwriting: the
+  // isReplay flag above stops THIS function's own replay calls from
+  // re-enqueueing on failure, but a second tab's own live (non-replay)
+  // executeGitHubSync call can still enqueue a genuinely new item while this
+  // loop is running. A blind overwrite here would silently drop that item;
+  // keeping anything outside processedIds preserves it.
+  const freshQueue = await getOfflineQueue();
+  const merged = freshQueue
+    .filter(item => !processedIds.has(item.id))
+    .concat(remaining);
+  await setOfflineQueue(merged);
+
+  if (gaveUpAny) {
+    safeSendMessage({ type: 'SET_BADGE', state: 'error' });
+    showToast('Some queued syncs could not complete after several attempts. Resubmit them on TUF+ to retry.', 'error', 'QUEUE_GAVE_UP');
+  } else if (merged.length > 0) {
+    safeSendMessage({ type: 'SET_BADGE', state: 'queued', count: merged.length });
+  } else {
+    safeSendMessage({ type: 'CLEAR_BADGE' });
+  }
+
   if (remaining.length > 0) {
     await pushDiag('QUEUE_PARTIAL', 'FLUSH_INCOMPLETE', `${remaining.length} item(s) still queued.`);
   }
@@ -598,6 +677,24 @@ function singletonListener(target, type, handler, stateKey, useCapture = false) 
   target.addEventListener(type, handler, useCapture);
 }
 
+/**
+ * background.js's ensureScriptsInjected only re-injects this script when a
+ * TUFHUB_PING to the tab goes unanswered - a live instance surviving ordinary
+ * SPA navigation between problems is the common case, not the exception
+ * (confirmed live: a queued item sat untouched across several problem
+ * navigations in the same tab). That means initTUFHub, and the
+ * flushOfflineQueue() call at its end, can go uncalled for the tab's entire
+ * remaining lifetime after first load. The 'online' listener above only
+ * fires on a genuine network state change. A periodic in-tab flush is the
+ * only trigger that depends on neither. Idempotent-replace, same pattern as
+ * singletonListener above, since initTUFHub can legitimately run again later
+ * (a real reload/re-injection) and would otherwise stack a second timer.
+ */
+function startQueueFlushInterval() {
+  if (window.__TUFHUB_QUEUE_INTERVAL__) clearInterval(window.__TUFHUB_QUEUE_INTERVAL__);
+  window.__TUFHUB_QUEUE_INTERVAL__ = setInterval(flushOfflineQueue, 60000);
+}
+
 // -------------------------------------------------------------
 // Initialization (idempotent - the background worker re-injects this script
 // after SPA navigations, and duplicate listeners would double-sync)
@@ -647,6 +744,7 @@ function initTUFHub() {
 
   setupSubmitClickListeners();
   flushOfflineQueue();
+  startQueueFlushInterval();
 }
 
 let shouldInit = false;

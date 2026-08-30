@@ -126,8 +126,17 @@ async function commitTreeEntries(token, hook, treeEntries, commitMessage, retrie
       }
 
       if (refRes.status === 409 || refRes.status === 422) {
+        // GitHub's own message (e.g. "Update is not a fast forward") is worth
+        // keeping - the bare status code alone can't distinguish a genuine
+        // non-fast-forward race from other 409/422 causes. Body read is
+        // best-effort: never let a parse failure mask the real conflict.
+        let detail = '';
+        try {
+          const errJson = await refRes.json();
+          if (errJson && errJson.message) detail = `: ${errJson.message}`;
+        } catch (e) {}
         console.warn(`[TUFHub Debug] Ref update conflict on ${branch} (attempt ${attempt + 1}/${retries}). Retrying against new HEAD...`);
-        lastErr = new Error(`GitHub Ref Update Conflict (${refRes.status})`);
+        lastErr = new Error(`GitHub Ref Update Conflict (${refRes.status})${detail}`);
         await new Promise(r => setTimeout(r, retryBackoffMs(attempt)));
         continue;
       }
