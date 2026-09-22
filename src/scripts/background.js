@@ -5,29 +5,16 @@
 
 import { reconcileRepoFromTree, isCodeIdentical, updateCodeHash } from './tuf/stats.js';
 import { commitFiles, deleteFiles } from './tuf/uploader.js';
+import { TUF_CONTENT_SCRIPT_URL } from './util.js';
 
 const DEFAULT_CLIENT_ID = ''; // User provides their own OAuth Client ID via the welcome page
 
 // -------------------------------------------------------------
 // GitHub write serialization queue
 //
-// All three flows that mutate the GitHub repo (auto-sync commitFiles, popup
-// delete, popup reconcile) must never run concurrently - overlapping
-// tree/commit/ref-PATCH sequences race GitHub's ref update even with
-// commitTreeEntries' own retry loop, because both callers keep re-reading
-// each other's just-moved HEAD. One FIFO promise chain forces every write
-// flow to fully settle before the next one starts its own tree read,
-// regardless of which tab/popup/handler triggered it.
-//
-// Lives in module scope, so it resets whenever the MV3 service worker is
-// killed and restarted - that's correct, not a bug: a fresh scope means
-// ghWriteQueue becomes a freshly-resolved promise, and nothing was
-// genuinely in flight that survived the kill either (any pending fetch()
-// died with the worker). Chrome also keeps the worker alive for the
-// duration of a pending onMessage listener that hasn't called sendResponse
-// yet, so a kill mid-write is rare; when it happens, the content script's
-// sendMessage call rejects and becomes a normal thrown Error that the
-// existing catch-block/offline-queue logic already handles unchanged.
+// Serializes all repository mutations (auto-sync commits, folder deletions, tree reconciliation) through a single FIFO promise chain.
+// Prevents concurrent writes from racing GitHub branch ref updates and causing HTTP 409 or 422 conflicts.
+// Module-scoped queue naturally resets when the MV3 service worker sleeps and wakes.
 let ghWriteQueue = Promise.resolve();
 
 function enqueueGitHubWrite(taskFn) {
@@ -61,30 +48,49 @@ chrome.runtime.onStartup.addListener(() => {
       applyBadgeState(res.tufhub_badge);
     }
   });
+  reinjectAllOpenTufTabs();
 });
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     const welcomeUrl = chrome.runtime.getURL('welcome.html');
     chrome.tabs.create({ url: welcomeUrl, active: true });
+  } else if (details.reason === 'update') {
+    // NOTE: Declarative content scripts only match when a document initially loads.
+    // Extension updates do not retroactively inject into already-open matching tabs.
+    // Tabs opened before manifest changes would otherwise stay permanently scriptless.
+    // This sweep proactively re-injects scripts into all matching open tabs.
+    reinjectAllOpenTufTabs();
   }
 });
 
-// -------------------------------------------------------------
-// SPA re-injection guard
-//
-// Chrome never re-injects declarative content scripts on Next.js History API
-// navigation. If a tab starts on a URL outside the content-script match
-// patterns (the site root, for example) and the user then routes into a problem
-// entirely client-side, the tab has no interceptor at all and submissions sync
-// silently fail until a hard refresh. This restores them without needing the
-// webNavigation permission - chrome.tabs.onUpdated already reports SPA URL
-// changes, and "tabs" + "scripting" are both already declared in the manifest.
-// -------------------------------------------------------------
-const TUF_PLUS_URL = /^https:\/\/(?:[a-z0-9-]+\.)*takeuforward\.org\/plus/i;
+// NOTE: Must stay in sync with manifest.json content_scripts[].matches.
+// chrome.tabs.query url filter requires literal glob patterns rather than regex.
+const TUF_CONTENT_SCRIPT_MATCH_PATTERNS = [
+  'https://takeuforward.org/practice/*',
+  'https://takeuforward.org/practice-test/*',
+  'https://takeuforward.org/learning/*',
+  'https://*.takeuforward.org/practice/*',
+  'https://*.takeuforward.org/practice-test/*',
+  'https://*.takeuforward.org/learning/*'
+];
 
-function isTufPlusUrl(url) {
-  return typeof url === 'string' && TUF_PLUS_URL.test(url);
+function reinjectAllOpenTufTabs() {
+  try {
+    chrome.tabs.query({ url: TUF_CONTENT_SCRIPT_MATCH_PATTERNS }, (tabs) => {
+      (tabs || []).forEach((tab) => {
+        if (tab.id) ensureScriptsInjected(tab.id, tab.url);
+      });
+    });
+  } catch (e) {}
+}
+
+// -------------------------------------------------------------
+// SPA re-injection guard: re-injects content scripts on Next.js client-side navigation.
+// Listens to chrome.tabs.onUpdated to re-arm tabs without requiring extra webNavigation permissions.
+// -------------------------------------------------------------
+function isTufAppUrl(url) {
+  return typeof url === 'string' && TUF_CONTENT_SCRIPT_URL.test(url);
 }
 
 function pingContentScript(tabId) {
@@ -101,15 +107,7 @@ function pingContentScript(tabId) {
   });
 }
 
-// Next.js fires several history-API events in a row for a single logical
-// navigation (route change, then hydration, then a query-param update). Each
-// one lands here as its own onUpdated call, and pingContentScript() is an
-// async round-trip - without a lock, 3-4 of these overlapping calls all see
-// "nothing responded yet" and each independently executeScript()s content.js,
-// stacking duplicate listeners in the tab (confirmed via a real "GitHub Ref
-// Update Conflict (422)" storm: one accepted-submission event fired 5 synced
-// commits at once). One in-flight check per tab collapses that burst into a
-// single ping+inject.
+// In-flight per-tab lock prevents rapid bursts of Next.js history events from injecting duplicate scripts.
 const injectionInFlight = new Set();
 
 async function ensureScriptsInjected(tabId, url) {
@@ -122,8 +120,7 @@ async function ensureScriptsInjected(tabId, url) {
 
     if (!needsInterceptor && !needsContent) return;
 
-    // Both scripts self-guard against double initialization, so a redundant
-    // injection is a no-op rather than a duplicate listener.
+    // Both scripts self-guard against double initialization, making redundant injection a safe no-op.
     try {
       if (needsInterceptor) {
         await chrome.scripting.executeScript({
@@ -149,9 +146,8 @@ async function ensureScriptsInjected(tabId, url) {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   const url = changeInfo.url || (tab && tab.url);
-  if (!isTufPlusUrl(url)) return;
-  // changeInfo.url covers History API navigation; status 'complete' covers a
-  // full document load that raced the declarative injection.
+  if (!isTufAppUrl(url)) return;
+  // changeInfo.url covers History API navigation, while status 'complete' covers full document loads.
   if (!changeInfo.url && changeInfo.status !== 'complete') return;
   ensureScriptsInjected(tabId, url);
 });
@@ -198,7 +194,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'REINJECT_TAB_SCRIPTS') {
     chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
       const tab = tabs && tabs[0];
-      if (tab && isTufPlusUrl(tab.url || '')) {
+      if (tab && isTufAppUrl(tab.url || '')) {
         await ensureScriptsInjected(tab.id, tab.url);
         sendResponse({ status: 'reinjected' });
       } else {
@@ -209,13 +205,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.type === 'GITHUB_COMMIT_FILES') {
-    // token/hook read here, not trusted from the content script - same trust
-    // boundary as RECONCILE_REPO/DELETE_REPO_FOLDER below. This is the
-    // content-script auto-sync path (content.js's sendGitHubCommitMessage) -
-    // routed through the service worker and the shared queue below instead of
-    // calling commitFiles() directly in the tab's own realm, so it can never
-    // race another tab's sync, a popup delete/reconcile, or its own
-    // overlapping callers (interceptor event, DOM watcher, offline flush).
+    // NOTE: Reads token and hook directly from storage to enforce service worker trust boundary.
+    // Content-script sync is routed through the module queue instead of committing directly in the tab.
+    // Prevents races against concurrent tab syncs, popup reconciliations, and offline flushes.
     chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], (res) => {
       const token = res.tufhub_token;
       const hook = res.tufhub_hook;
@@ -225,11 +217,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
       const { slug, codeFileName, code } = request;
       enqueueGitHubWrite(async () => {
-        // Re-checked here, not just in content.js: this task may have sat
-        // behind another queued write that already synced this exact
-        // slug+file while it waited. A fresh, atomic check right before
-        // committing is what turns a would-be race into a clean skip instead
-        // of a redundant commit.
+        // Atomic check right before commit: catches duplicate writes queued while waiting in the FIFO chain.
         if (slug && codeFileName && await isCodeIdentical(slug, codeFileName, code)) {
           return { skipped: true };
         }
@@ -244,11 +232,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.type === 'RECONCILE_REPO') {
-    // Runs here, not in the popup: a popup page is destroyed the instant it
-    // closes, which would kill an in-flight fetch mid-operation - possibly
-    // after the tree read but before the README write, leaving local stats
-    // and the repo inconsistent. The service worker outlives the popup for
-    // the duration of this handler.
+    // NOTE: Runs in the background worker because closing the popup tears down in-flight requests.
+    // Guarantees tree reads and root README updates complete atomically without leaving orphaned state.
     chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], (res) => {
       enqueueGitHubWrite(() => reconcileRepoFromTree(res.tufhub_token, res.tufhub_hook))
         .then((result) => {
@@ -265,40 +250,70 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.type === 'DELETE_REPO_FOLDER') {
-    // Same reasoning as RECONCILE_REPO above: runs in the service worker so a
-    // closed popup can't leave a delete commit half-done. Re-reconciles right
-    // after (skipCooldown - this is a system-triggered refresh reacting to a
-    // real repo mutation, not the manual button-mashing the cooldown guards
-    // against) so the response already reflects the post-delete repo state.
-    // The whole delete-then-reconcile(-then-retry) sequence is one queued
-    // unit, not two separate queue entries, since it's meant to be atomic
-    // relative to other writers.
+    // NOTE: Runs in service worker to prevent an in-flight folder deletion from aborting on popup close.
+    // Re-reconciles repository immediately with skipCooldown to return fresh state in the response.
+    // Delete and reconcile execute as a single atomic queued unit against concurrent writers.
     chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], (res) => {
       const token = res.tufhub_token;
       const hook = res.tufhub_hook;
       enqueueGitHubWrite(async () => {
-        await deleteFiles(token, hook, request.paths, `Remove duplicate folder ${request.folderPath} - TUFHub`);
+        await deleteFiles(token, hook, request.paths, `Remove duplicate folder ${request.folderPath} (TUFHub)`);
         let result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
-        // GitHub's tree-read API can very briefly lag a commit that just
-        // landed - if the folder we just deleted still shows up, the read
-        // raced the write. One short retry improves general freshness, but
-        // isn't relied on for correctness below - a fixed wait is never
-        // actually guaranteed long enough under real contention.
+        // Retries once if the tree-read briefly lags the delete commit that just landed on GitHub.
         const stillThere = (result.duplicates || []).some(d =>
           (d.folders || []).some(f => f.folderPath === request.folderPath));
         if (stillThere) {
           await new Promise(r => setTimeout(r, 1500));
           result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
         }
-        // Deterministic guarantee, independent of read timing: deleteFiles()
-        // above only resolves once its own retry loop confirms the ref
-        // update actually landed, so this path can never legitimately still
-        // be a duplicate - strip it regardless of what the tree-read says.
+        // Deterministic safeguard: deleteFiles confirms ref update landed, so strip deleted folder from duplicates regardless of tree lag.
         if (result.duplicates) {
           result = {
             ...result,
             duplicates: result.duplicates
               .map(d => ({ ...d, folders: (d.folders || []).filter(f => f.folderPath !== request.folderPath) }))
+              .filter(d => (d.folders || []).length > 1)
+          };
+        }
+        return result;
+      })
+        .then((result) => {
+          chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          sendResponse(result);
+        })
+        .catch((err) => {
+          sendResponse({ ok: false, reason: 'error', message: err && err.message });
+        });
+    });
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.type === 'DELETE_ALL_DUPLICATE_FOLDERS') {
+    // NOTE: Bulk deletes all non-newest duplicate folders across every slug in a single commit.
+    // Collapsing multiple folder removals into one commit avoids back-to-back ref update conflicts.
+    chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], (res) => {
+      const token = res.tufhub_token;
+      const hook = res.tufhub_hook;
+      const items = request.items || [];
+      const deletedFolderPaths = items.map(item => item.folderPath);
+      const allPaths = items.flatMap(item => item.paths || []);
+
+      enqueueGitHubWrite(async () => {
+        await deleteFiles(token, hook, allPaths, `Remove ${items.length} duplicate folder(s) (TUFHub)`);
+        let result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
+        // Retries once if the tree-read briefly lags the delete commit that just landed on GitHub.
+        const stillThere = (result.duplicates || []).some(d =>
+          (d.folders || []).some(f => deletedFolderPaths.includes(f.folderPath)));
+        if (stillThere) {
+          await new Promise(r => setTimeout(r, 1500));
+          result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
+        }
+        // Deterministic safeguard: deleteFiles confirmed every path landed, so strip all deleted folders from returned duplicates.
+        if (result.duplicates) {
+          result = {
+            ...result,
+            duplicates: result.duplicates
+              .map(d => ({ ...d, folders: (d.folders || []).filter(f => !deletedFolderPaths.includes(f.folderPath)) }))
               .filter(d => (d.folders || []).length > 1)
           };
         }
@@ -330,7 +345,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 function launchTabOAuthFlow(customClientId, customClientSecret) {
   const clientId = customClientId || DEFAULT_CLIENT_ID;
-  // Construct OAuth redirect URI using chrome.runtime.id - no identity permission needed
+  // Construct OAuth redirect URI using chrome.runtime.id (no identity permission needed)
   const redirectUri = `https://${chrome.runtime.id}.chromiumapp.org/`;
   const state = `tufhub_${Date.now()}`;
   const authUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&scope=repo&state=${state}&redirect_uri=${encodeURIComponent(redirectUri)}`;

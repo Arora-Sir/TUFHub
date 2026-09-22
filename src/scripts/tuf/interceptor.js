@@ -13,18 +13,14 @@
 
   const TUFHUB_VERSION = process.env.TUFHUB_VERSION || '0.0.0';
 
-  // Absolute safety cap. This is NOT a race against the judge - the gate stays
-  // open until a verdict arrives, the user navigates away, or this cap trips.
-  // The old build used a 45s window, which silently dropped every verdict from
-  // a cold judge (typically the first submission after an idle period).
+  // Safety cap: keeps the submission gate open until a verdict arrives, navigation occurs, or timeout trips.
+  // Extended 10-minute window accommodates cold judge environments without dropping verdicts.
   const ARM_MAX_AGE_MS = 10 * 60 * 1000;
   const ARM_KEY = '__tufhub_arm_state__';
 
   console.log(`%c[TUFHub Interceptor v${TUFHUB_VERSION}] 🚀 MAIN world fetch/XHR hook active.`, 'color: #22c55e; font-weight: bold; font-size: 13px;');
 
-  // Liveness marker readable from the isolated world (CustomEvents dispatched at
-  // document_start would be missed - content.js only starts at document_idle).
-  // Re-asserted on activity in case a framework re-render strips it.
+  // Liveness marker on documentElement readable from isolated world content scripts across re-renders.
   function markAlive() {
     try {
       if (document.documentElement.getAttribute('data-tufhub-interceptor') !== TUFHUB_VERSION) {
@@ -35,6 +31,7 @@
   markAlive();
 
   let cachedProblemDescription = '';
+  let cachedProblemDescriptionSlug = '';
   let cachedProblemTitle = '';
   let cachedProblemSlug = '';
   let lastProcessedSubmissionId = '';
@@ -48,26 +45,37 @@
     }
   }
 
+  // Fallback title derived from URL slug when no h1 exists on the page (such as the Solution tab).
+  function titleFromSlug(slug) {
+    if (!slug) return '';
+    return slug
+      .split('-')
+      .filter(Boolean)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+
   /**
-   * TUF+'s multi-tab editor (up to 4 tabs per problem) has no ARIA tab semantics -
-   * just styled divs. The `Close <label>` aria-label is a more stable anchor than
-   * the exact Tailwind class soup for finding tabs; "which one is active" still
-   * needs a class heuristic (confirmed live: active = text-black/dark:text-white,
-   * inactive = text-zinc-500/dark:text-zinc-500, only on hover).
-   * Returns { label: '', count: 0 } on any scrape failure so callers degrade to
-   * the legacy single-file behavior rather than guess at a wrong filename.
+   * Identifies the active editor tab using ARIA tab semantics (role="tab" and aria-selected).
+   * Strips the close button subtree to isolate the clean tab display name.
+   * Returns { label: '', count: 0 } on failure so callers degrade gracefully to solution.<ext>.
    */
   function getActiveTabInfo() {
     try {
-      const closeButtons = Array.from(document.querySelectorAll('button[aria-label^="Close "]'));
-      if (closeButtons.length === 0) return { label: '', count: 0 };
-      const containers = closeButtons.map(btn => ({
-        label: (btn.getAttribute('aria-label') || '').replace(/^Close\s+/i, '').trim(),
-        container: btn.parentElement
-      })).filter(c => c.label && c.container);
-      if (containers.length === 0) return { label: '', count: 0 };
-      const active = containers.find(c => /text-black|dark:text-white/.test(c.container.className || ''));
-      return { label: (active || containers[0]).label, count: containers.length };
+      const tabs = Array.from(document.querySelectorAll('[role="tab"]'))
+        .filter(t => t.querySelector('button[aria-label^="Close "]'));
+      if (tabs.length === 0) return { label: '', count: 0 };
+
+      const labelOf = (tab) => {
+        const contentDiv = tab.children[1] || tab;
+        const clone = contentDiv.cloneNode(true);
+        clone.querySelectorAll('button').forEach(b => b.remove());
+        return clone.textContent.trim();
+      };
+
+      const active = tabs.find(t => t.getAttribute('aria-selected') === 'true');
+      const label = labelOf(active || tabs[0]);
+      return label ? { label, count: tabs.length } : { label: '', count: 0 };
     } catch (e) {
       return { label: '', count: 0 };
     }
@@ -99,8 +107,7 @@
     return { armed: false, epoch: 0, at: 0, slug: '' };
   }
 
-  // sessionStorage keeps the gate armed across tab freeze, discard-and-restore
-  // and bfcache, which plain closure state does not survive.
+  // sessionStorage preserves arm state across tab discard-and-restore, bfcache, and background freeze.
   let armState = loadArmState();
 
   function saveArmState() {
@@ -111,16 +118,11 @@
 
   function arm(source) {
     markAlive();
-    // Captured now, not at verdict-time: avoids the race where a slow judge
-    // resolves after the user has already switched to a different tab.
-    //
-    // arm() fires twice per real submission - once on the click (before TUF's
-    // own handler runs) and again when the POST /judge/submit request is
-    // observed (after it runs, by which point TUF may have transiently hidden
-    // or disabled the tab bar for the "submitting" state). A scrape failure on
-    // that second call must not clobber the good data the first call already
-    // captured, or every multi-tab sync silently falls back to solution.<ext>.
+    // NOTE: Active tab and Monaco code are snapshotted at arm time rather than verdict time.
+    // Prevents slow judge polling from capturing the wrong tab if the user switches tabs while waiting.
+    // Retains earlier snapshot data if the second arm call occurs while the tab bar is temporarily disabled.
     const tabInfo = getActiveTabInfo();
+    const codeSnapshot = extractCodeFromMonaco();
     const sameProblem = armState.slug === currentProblemSlug();
     armState = {
       armed: true,
@@ -128,7 +130,8 @@
       at: Date.now(),
       slug: currentProblemSlug(),
       tabLabel: tabInfo.count > 0 ? tabInfo.label : (sameProblem ? armState.tabLabel : ''),
-      tabCount: tabInfo.count > 0 ? tabInfo.count : (sameProblem ? armState.tabCount : 0)
+      tabCount: tabInfo.count > 0 ? tabInfo.count : (sameProblem ? armState.tabCount : 0),
+      code: codeSnapshot && codeSnapshot.trim().length > 0 ? codeSnapshot : (sameProblem ? armState.code : '')
     };
     // A fresh intent must never be suppressed by the previous verdict's id.
     lastProcessedSubmissionId = '';
@@ -156,9 +159,7 @@
     return true;
   }
 
-  // Dispatched by content.js on a real Submit click / Ctrl+Enter. This gives the
-  // gate a second, independent opener so detection no longer depends solely on
-  // observing the POST /judge/submit response.
+  // Provides a secondary gate opener when content.js detects a Submit button click or Ctrl+Enter.
   window.addEventListener('TUFHUB_USER_SUBMIT_CLICKED', () => {
     arm('USER_SUBMIT_CLICK');
   });
@@ -166,6 +167,15 @@
   function extractCodeFromMonaco() {
     try {
       if (window.monaco && window.monaco.editor) {
+        // NOTE: getEditors()[0].getModel() targets the currently mounted, visible editor tab.
+        // getModels()[0] is ordered by creation time and returns stale tab data when switching tabs.
+        const editors = window.monaco.editor.getEditors ? window.monaco.editor.getEditors() : [];
+        if (editors.length > 0) {
+          const activeModel = editors[0].getModel();
+          const activeVal = activeModel ? activeModel.getValue() : '';
+          if (activeVal && activeVal.trim().length > 0) return activeVal;
+        }
+        // Only reached if getEditors() isn't available at all (older Monaco).
         const models = window.monaco.editor.getModels();
         if (models && models.length > 0) {
           const val = models[0].getValue();
@@ -206,11 +216,14 @@
 
   function extractDescriptionFromDOM() {
     try {
+      const h1 = document.querySelector('h1');
       const panel =
         document.querySelector('[data-tuf-ai-selectable="true"]') ||
         document.querySelector('.problem-statement')?.closest('div.overflow-y-auto') ||
         document.querySelector('.problem-statement')?.parentElement?.parentElement ||
-        document.querySelector('[class*="problem-statement"]')?.parentElement;
+        document.querySelector('[class*="problem-statement"]')?.parentElement ||
+        // Matches scrollable panel under h1 for revamped site layout where legacy classes are absent.
+        (h1 && h1.closest('[class*="scrollable"]'));
 
       if (panel) {
         const clone = panel.cloneNode(true);
@@ -232,11 +245,33 @@
       }
     } catch (e) {}
 
-    if (cachedProblemDescription && cachedProblemDescription.length > 20) {
+    if (cachedProblemDescription && cachedProblemDescriptionSlug === currentProblemSlug() && cachedProblemDescription.length > 20) {
       return cachedProblemDescription;
     }
 
     return '';
+  }
+
+  /**
+   * Extracts difficulty tier from the header button group adjacent to the problem title.
+   * Scoped to the h1 parent container to avoid matching unrelated account badges on the page.
+   * Falls back to 'Unspecified' rather than guessing when tier elements are absent.
+   */
+  function extractDifficultyFromDOM() {
+    try {
+      const h1 = document.querySelector('h1');
+      const headerButtons = h1 && h1.parentElement ? Array.from(h1.parentElement.querySelectorAll('button')) : [];
+      const tierBtn = headerButtons.find(b => {
+        const t = (b.innerText || '').trim().toLowerCase();
+        return t && t !== 'hints' && !t.startsWith('companies');
+      });
+      if (tierBtn) return tierBtn.innerText.trim();
+
+      // Kept in case TUF ever reintroduces a literal difficulty class.
+      const diffElem = document.querySelector('[class*="difficulty"]');
+      if (diffElem) return diffElem.innerText.trim();
+    } catch (e) {}
+    return 'Unspecified';
   }
 
   function findSubmissionObject(obj) {
@@ -256,9 +291,8 @@
       return obj;
     }
 
-    // A bare `status` is ambiguous: REST envelopes use {status:'success', data:{...}},
-    // and 'SUCCESS' is treated as an accepted verdict downstream. Always prefer a
-    // nested payload so the wrapper is not mistaken for the verdict itself.
+    // A bare status is ambiguous because REST envelopes wrap results in {status: 'success', data: {...}}.
+    // Downstream treats SUCCESS as an accepted verdict, so unpack nested data before checking bare status.
     if (obj.data) {
       const nested = findSubmissionObject(obj.data);
       if (nested) return nested;
@@ -281,11 +315,17 @@
     if (urlStr.includes('/problem') && !urlStr.includes('/judge/')) {
       try {
         const prob = data.data || data.problem || data;
-        if (prob.description) cachedProblemDescription = prob.description;
-        if (prob.title || prob.name) cachedProblemTitle = prob.title || prob.name;
-        // Bind the cache to the slug it was captured on, so an SPA navigation
-        // cannot leak the previous problem's title into the next sync.
-        cachedProblemSlug = currentProblemSlug();
+        const respSlug = currentProblemSlug();
+        // Binds cached problem metadata directly to the active problem slug.
+        // NOTE: Prevents single-page application navigation from leaking previous problem titles into subsequent syncs.
+        if (prob.description) {
+          cachedProblemDescription = prob.description;
+          cachedProblemDescriptionSlug = respSlug;
+        }
+        if (prob.title || prob.name) {
+          cachedProblemTitle = prob.title || prob.name;
+          cachedProblemSlug = respSlug;
+        }
         console.log('[TUFHub Interceptor] 📝 Cached problem metadata:', { title: cachedProblemTitle, slug: cachedProblemSlug, descLength: cachedProblemDescription.length });
       } catch (e) {}
       return;
@@ -301,25 +341,28 @@
       return;
     }
 
-    // Must be judge submit or judge submissions
-    if (!urlStr.includes('/judge/submit') && !urlStr.includes('/judge/submissions') && !urlStr.includes('/submission/result')) {
-      // Surface near-misses so an endpoint rename on TUF's side is visible
-      // instead of killing detection silently.
+    // Allowlist includes /judge/check-submit to capture poll responses from async SQL evaluations.
+    if (
+      !urlStr.includes('/judge/submit') &&
+      !urlStr.includes('/judge/submissions') &&
+      !urlStr.includes('/judge/check-submit') &&
+      !urlStr.includes('/submission/result')
+    ) {
+      // Logs near-miss candidate endpoints to diagnostics so API changes remain visible.
       if (urlStr.includes('judge') || urlStr.includes('verdict') || urlStr.includes('submission')) {
         diag('UNMATCHED_ENDPOINT', 'ENDPOINT_NOT_IN_ALLOWLIST', `${method} ${urlStr}`);
       }
       return;
     }
 
-    // 1. POST to /judge/submit means the user definitely submitted. Arm the gate
-    //    and stop: this response carries the queued submission, not a verdict,
-    //    and evaluating it risks reading an API envelope as an "accepted".
+    // POST /judge/submit confirms submission intent: arms the gate and stops prior to verdict evaluation.
+    // NOTE: This response carries queued submission metadata rather than a verdict; evaluating it directly risks false positives.
     if (method === 'POST' && urlStr.includes('/judge/submit')) {
       arm('POST_JUDGE_SUBMIT');
       return;
     }
 
-    // 2. GATE: ignore page-load history fetches unless a submit intent is live.
+    // GATE: ignore page-load history fetches unless a submit intent is live.
     if (!isArmed()) {
       diag('IGNORED', 'NOT_ARMED', 'No live submit intent (page-load history fetch).', false);
       return;
@@ -348,11 +391,8 @@
       return;
     }
 
-    // Dedupe key. The old fallback was `${url}_${passed}_${total}`, which is
-    // identical across re-submits of the same problem (and across different
-    // problems with the same test-case count), permanently suppressing them for
-    // the life of the document. Binding to the slug + submit epoch makes every
-    // fresh Submit produce a distinct key.
+    // Deduplication key bound to problem slug and submit epoch so fresh submissions generate distinct keys.
+    // NOTE: Legacy fallback keys based on url and test case counts permanently suppressed re-submissions for the life of the document.
     const submissionId = targetObj.submission_id || targetObj.id ||
       `${currentProblemSlug()}_e${armState.epoch}_${passed}_${total}`;
 
@@ -365,16 +405,19 @@
 
     console.log('%c[TUFHub Interceptor] 🎉 100% PASSED ACCEPTED SUBMISSION CONFIRMED!', 'color: #3b82f6; font-weight: bold; font-size: 13px;', { verdict: rawVerdict, passed, total });
 
-    const code = targetObj.code || targetObj.solution || targetObj.source_code || extractCodeFromMonaco();
+    // Prefers arm-time snapshotted code over verdict-time scraping to protect against tab switching.
+    const code = targetObj.code || targetObj.solution || targetObj.source_code || armState.code || extractCodeFromMonaco();
     const language = targetObj.language || targetObj.lang || extractLanguageFromDOM();
 
-    const titleElem = document.querySelector('h1, [class*="title"], [class*="problem-name"]');
-    const diffElem = document.querySelector('[class*="difficulty"], [class*="badge"]');
+    // Queries h1 directly to avoid sidebar title elements from colliding with the active problem title.
+    // Falls back to URL slug derivation when h1 is absent from the active view.
+    const h1Elem = document.querySelector('h1');
 
     const slugNow = currentProblemSlug();
     const cachedTitleIsFresh = cachedProblemTitle && cachedProblemSlug === slugNow;
-    const title = (cachedTitleIsFresh ? cachedProblemTitle : '') || (titleElem ? titleElem.innerText.trim() : '');
-    const difficulty = diffElem ? diffElem.innerText.trim() : 'Medium';
+    const title = (cachedTitleIsFresh ? cachedProblemTitle : '') ||
+      (h1Elem ? h1Elem.innerText.trim() : titleFromSlug(slugNow));
+    const difficulty = extractDifficultyFromDOM();
     const description = extractDescriptionFromDOM();
 
     diag('VERDICT_ACCEPTED', 'DISPATCHING', `${slugNow} ${passed}/${total}`);
@@ -402,8 +445,8 @@
     let method = 'GET';
     try {
       if (typeof Request !== 'undefined' && input instanceof Request) {
-        // Plain String(input) on a Request yields "[object Request]", which used
-        // to make every Request-style fetch invisible to the matcher.
+        // Extracts url and method directly from Request instances where String(input) yields '[object Request]'.
+        // NOTE: Direct property extraction ensures Request-style fetch calls remain visible to the payload matcher.
         url = input.url;
         method = input.method || 'GET';
       } else {
@@ -436,10 +479,9 @@
   let installedFetch = wrapFetch(window.fetch);
 
   try {
-    // A plain assignment can be silently clobbered later by a lazily-loaded
-    // polyfill, an analytics SDK or another extension, which would blind
-    // detection for the life of the document with no way to recover. The setter
-    // re-wraps whatever anyone assigns, so the hook always survives.
+    // Property descriptor setter re-wraps subsequent assignments to window.fetch so the hook persists.
+    // NOTE: Direct assignments can be clobbered by lazy polyfills or analytics SDKs, blinding detection for the document lifetime.
+    // NOTE: The setter re-wraps any subsequent reassignment so the interception hook reliably survives.
     Object.defineProperty(window, 'fetch', {
       configurable: true,
       enumerable: true,

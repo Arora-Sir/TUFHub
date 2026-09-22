@@ -3,6 +3,24 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
+// Must stay in sync with manifest.json content_scripts[].matches for valid takeuforward.org routes (practice problems, quiz sets, learning articles).
+// Shared utility constant to prevent duplicate regex patterns across background.js and popup.js.
+export const TUF_CONTENT_SCRIPT_URL = /^https:\/\/(?:[a-z0-9-]+\.)*takeuforward\.org\/(practice|practice-test|learning)\//i;
+
+/**
+ * TUF's revamped site tags problems Basic / Core / Pro instead of the classic Easy / Medium / Hard.
+ * Bridges both vocabularies to a unified bucket so existing and newly synced problems tally and color-code together.
+ * Falls back to 'unspecified' if neither vocabulary matched (e.g. problems without difficulty tier badges).
+ */
+export function classifyDifficulty(diffStr) {
+  const d = (diffStr || '').toString().trim().toLowerCase();
+  if (!d || d === 'unspecified') return 'unspecified';
+  if (d.includes('easy') || d === 'basic') return 'easy';
+  if (d.includes('hard') || d === 'pro' || d === 'advanced') return 'hard';
+  if (d.includes('medium') || d === 'core') return 'medium';
+  return 'unspecified';
+}
+
 export const LANGUAGE_MAP = {
   'C++': 'cpp',
   cpp: 'cpp',
@@ -61,9 +79,8 @@ export function addLeadingZeros(slug) {
 
 export function sanitizePathSegment(segment) {
   if (!segment) return 'General';
-  // Hyphenate slashes first (e.g. DOM-scraped labels like "Sliding Window / 2 Pointer")
-  // so they can't survive into a folderPath template string and create an unintended
-  // nested directory - only then strip the remaining special characters and normalize spaces.
+  // Hyphenate slashes first (e.g. DOM-scraped labels like "Sliding Window / 2 Pointer") to prevent unintended nested directories.
+  // Then strip remaining special characters and normalize whitespace.
   let cleaned = segment
     .toString()
     .replace(/\s*[\/\\]\s*/g, '-')
@@ -76,10 +93,9 @@ export function sanitizePathSegment(segment) {
 }
 
 /**
- * Filename for a synced solution. Only diverges from the legacy `solution.<ext>`
- * once a problem actually has 2+ open tabs - the moment the single-file scheme
- * breaks down. Un-renamed default tabs ("Tab-1") map to a cleaner "Solution-1";
- * a renamed tab ("Optimal") is used verbatim so intent isn't lost.
+ * Derives filename for a synced solution (e.g. "Solution-1.cpp", "Optimal.java").
+ * Diverges from legacy "solution.<ext>" only when 2+ tabs exist to preserve multiple solution strategies.
+ * Unrenamed tabs ("Tab-1") map to "Solution-1", while custom names ("Optimal") are preserved verbatim.
  */
 export function deriveCodeFileName(tabLabel, tabCount, ext) {
   if (!tabCount || tabCount < 2 || !tabLabel) return `solution.${ext}`;
@@ -89,9 +105,8 @@ export function deriveCodeFileName(tabLabel, tabCount, ext) {
 }
 
 /**
- * Display label for the same file in the root README's Solution(s) column.
- * Single-tab problems keep the existing bare-extension label (e.g. "JAVA") for
- * visual continuity with every already-synced repo.
+ * Display label for solution files in the root README Solution(s) column.
+ * Single-tab problems retain the bare extension label (e.g. "JAVA") for repository continuity.
  */
 export function deriveFileLabel(tabLabel, tabCount, ext) {
   if (!tabCount || tabCount < 2 || !tabLabel) return ext.toUpperCase();
@@ -100,12 +115,10 @@ export function deriveFileLabel(tabLabel, tabCount, ext) {
 }
 
 /**
- * generateRootReadmeMarkdown() stamps today's date into a "Last Synced" cell on
- * every call, so a naive string comparison between freshly-generated and
- * existing README content would always see a "difference" once a day rolls
- * over - even with zero structural changes - defeating any skip-if-unchanged
- * check. Strips that one cell out before comparing; the actual write (when one
- * happens) still uses the real, un-normalized content with today's real date.
+ * Normalizes root README date stamps before comparing against existing repository content.
+ * NOTE: generateRootReadmeMarkdown() stamps today's date into the Last Synced column on each run.
+ * NOTE: Naive string comparison would detect false-positive diffs once a day rolls over even with zero problem changes.
+ * NOTE: Stripping the date cell keeps unchanged indexes out of commits; actual writes still preserve authentic dates.
  */
 export function normalizeReadmeForCompare(content) {
   if (!content) return '';

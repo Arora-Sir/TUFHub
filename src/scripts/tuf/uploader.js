@@ -14,8 +14,7 @@ function ghHeaders(token, extra = {}) {
   };
 }
 
-// Per-hook branch memo so a repeat commitFiles() call in the same session
-// doesn't re-probe default_branch/main/master every time.
+// Branch cache per hook so repeat commits in the same session avoid redundant branch resolution.
 const branchCache = new Map();
 
 async function resolveDefaultBranch(token, hook) {
@@ -41,10 +40,7 @@ async function getRef(token, hook, branch) {
 }
 
 /**
- * Resolves the branch to commit against, trying (in order) the repo's real
- * default_branch, then a bare "main"/"master" probe if that lookup fails -
- * mirrors the fallback stats.js already uses on the read side for repo-tree
- * reconciliation.
+ * Resolves the target branch and head commit SHA, probing default_branch, main, and master.
  */
 async function resolveBranchAndHead(token, hook) {
   const candidates = [];
@@ -63,23 +59,17 @@ async function resolveBranchAndHead(token, hook) {
   throw new Error('Could not resolve a branch HEAD for this repository.');
 }
 
-// Growing + jittered backoff, not a flat interval - under genuine concurrent
-// writers (a second tab syncing while the popup deletes a folder, confirmed
-// to actually happen via a real "Ref Update Conflict" failure), repeated
-// writers retrying at the exact same flat interval keep re-colliding on the
-// same branch ref instead of spreading out.
+// Computes jittered exponential backoff for branch ref update retries.
+// NOTE: Under concurrent syncs or popup deletes, flat retry intervals cause repeated collisions on the same branch ref.
+// NOTE: Adding random jitter spreads concurrent requests to cleanly resolve non-fast-forward races.
 function retryBackoffMs(attempt) {
   return 300 * (attempt + 1) + Math.floor(Math.random() * 200);
 }
 
 /**
- * Commits a set of pre-built tree entries as ONE atomic git commit via the
- * Git Data API (tree -> commit -> ref update). Shared tail for both writing
- * files (commitFiles, blob-backed entries) and removing them (deleteFiles,
- * sha:null entries) - only how the entries are built differs between callers.
- *
- * @param {Array<{path: string, mode: string, type: string, sha: string|null}>} treeEntries
- * @returns {Promise<{commitSha: string, htmlUrl: string, treeSha: string}>}
+ * Commits pre-built tree entries as one atomic commit via Git Data API (trees -> commits -> refs).
+ * NOTE: Shared engine for both writing files (blob-backed entries) and removing them (sha: null entries).
+ * NOTE: Operates atomically so multi-file submissions and batch deletes land as a single commit.
  */
 async function commitTreeEntries(token, hook, treeEntries, commitMessage, retries = 5) {
   let lastErr;
@@ -108,9 +98,8 @@ async function commitTreeEntries(token, hook, treeEntries, commitMessage, retrie
       if (!newCommitRes.ok) throw new Error(`GitHub Commit Create Failed (${newCommitRes.status})`);
       const newCommitJson = await newCommitRes.json();
 
-      // force:false so a genuine concurrent write (second tab, manual popup
-      // Sync) surfaces as a rejected ref update instead of silently
-      // overwriting whatever landed on the branch in between.
+      // Enforces force: false so concurrent branch modifications surface as ref conflicts rather than clobbering commits.
+      // NOTE: Prevents concurrent tabs or popup syncs from silently overwriting commits that landed in between.
       const refRes = await fetch(`https://api.github.com/repos/${hook}/git/refs/heads/${branch}`, {
         method: 'PATCH',
         headers: ghHeaders(token, { 'Content-Type': 'application/json' }),
@@ -126,10 +115,8 @@ async function commitTreeEntries(token, hook, treeEntries, commitMessage, retrie
       }
 
       if (refRes.status === 409 || refRes.status === 422) {
-        // GitHub's own message (e.g. "Update is not a fast forward") is worth
-        // keeping - the bare status code alone can't distinguish a genuine
-        // non-fast-forward race from other 409/422 causes. Body read is
-        // best-effort: never let a parse failure mask the real conflict.
+        // Captures GitHub conflict error details (e.g. 'Update is not a fast forward') to diagnose ref contention.
+        // NOTE: Distinguishes genuine non-fast-forward races from other 409/422 validation errors.
         let detail = '';
         try {
           const errJson = await refRes.json();
@@ -154,13 +141,8 @@ async function commitTreeEntries(token, hook, treeEntries, commitMessage, retrie
 }
 
 /**
- * Commits any number of files as ONE atomic git commit via the Git Data API
- * (blobs -> tree -> commit -> ref update), instead of one Contents-API PUT
- * per file (which each create their own commit). Blobs are content-addressed
- * so no per-file "current sha" lookup is needed before writing.
- *
- * @param {Array<{path: string, content: string}>} files
- * @returns {Promise<{commitSha: string, htmlUrl: string, treeSha: string}>}
+ * Creates content-addressed blobs for multiple files and commits them as a single atomic tree.
+ * NOTE: Content-addressing eliminates the need to query per-file current SHAs before writing.
  */
 async function createBlob(token, hook, file, retries) {
   let lastErr;
@@ -187,10 +169,8 @@ export async function commitFiles(token, hook, files, commitMessage, retries = 5
     throw new Error('commitFiles called with no files.');
   }
 
-  // Own retry loop, independent of commitTreeEntries' ref-conflict retries below -
-  // a failed blob upload is a transient network issue, not a concurrent-write
-  // conflict, and shouldn't be silently unretried just because this step now
-  // lives outside the shared tree/commit/ref loop.
+  // Retries blob creations independently to isolate transient network errors from ref update conflicts.
+  // NOTE: Failed blob uploads are transient HTTP errors rather than concurrent-write branch collisions.
   const blobShas = await Promise.all(files.map(file => createBlob(token, hook, file, retries)));
 
   const treeEntries = files.map((file, i) => ({ path: file.path, mode: '100644', type: 'blob', sha: blobShas[i] }));
@@ -198,14 +178,9 @@ export async function commitFiles(token, hook, files, commitMessage, retries = 5
 }
 
 /**
- * Deletes a set of exact blob paths in ONE atomic git commit. GitHub's Git
- * Trees API removes a path from the tree when its entry carries sha: null -
- * no blob-creation or per-file "current sha" lookup needed, since removal is
- * resolved against a fresh base tree fetched at commit time inside
- * commitTreeEntries.
- *
- * @param {string[]} paths
- * @returns {Promise<{commitSha: string, htmlUrl: string, treeSha: string}>}
+ * Deletes paths in a single atomic git commit by setting blob SHA to null in the Git Trees API.
+ * NOTE: GitHub Git Trees API removes tree paths when entries specify sha: null.
+ * NOTE: Eliminates the need for blob creation or per-file current SHA lookups before deletion.
  */
 export async function deleteFiles(token, hook, paths, commitMessage, retries = 5) {
   if (!paths || paths.length === 0) {
@@ -233,8 +208,7 @@ export async function uploadToGitHub(token, hook, path, content, commitMessage, 
         const getJson = await getRes.json();
         currentSha = getJson.sha;
       } else if (getRes.status === 404) {
-        // File does not exist at this path yet (new path after topic re-routing).
-        // Clear any stale SHA so GitHub creates the file fresh instead of failing with 422.
+        // Clear stale SHA on 404 so GitHub creates the file fresh instead of failing with 422.
         currentSha = '';
       }
     } catch (e) {}

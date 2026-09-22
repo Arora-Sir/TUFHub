@@ -3,19 +3,15 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-import { decode, normalizeReadmeForCompare } from '../util.js';
+import { decode, normalizeReadmeForCompare, classifyDifficulty } from '../util.js';
 import { uploadToGitHub } from './uploader.js';
 import { generateRootReadmeMarkdown } from './rootReadme.js';
 
 export const DIAG_LIMIT = 50;
 
 /**
- * Detects an orphaned content script. When Chrome updates or reloads the
- * extension underneath an open tab, the isolated world keeps running but every
- * chrome.* call throws "Extension context invalidated". chrome.runtime.id goes
- * undefined at that moment, which is the only reliable synchronous signal.
- * Without this check the failure surfaces as an empty storage read, which the
- * sync engine used to misreport as "GitHub not connected".
+ * Detects an orphaned content script when extension context invalidates (reload or update under open tab).
+ * Checks chrome.runtime.id to distinguish an invalidated context from a genuine empty storage response.
  */
 export function isExtensionContextAlive() {
   try {
@@ -26,9 +22,7 @@ export function isExtensionContextAlive() {
 }
 
 /**
- * Appends one entry to a bounded diagnostic ring buffer in chrome.storage.local.
- * Every decision point that can abort a sync writes here, so a silent drop can
- * be diagnosed from the popup instead of requiring live DevTools.
+ * Appends an entry to a bounded diagnostic ring buffer in chrome.storage.local for popup inspection.
  */
 export async function pushDiag(stage, reasonCode = '', detail = '') {
   if (!isExtensionContextAlive()) return;
@@ -57,8 +51,7 @@ export async function clearDiag() {
 }
 
 /**
- * Latest-state snapshot for the popup's Sync Health panel. Kept separate from
- * the ring buffer so the popup can render without scanning the whole log.
+ * Updates latest-state snapshot for the popup Sync Health panel without scanning the full diagnostic log.
  */
 export async function updateHealth(patch) {
   if (!isExtensionContextAlive()) return;
@@ -149,10 +142,8 @@ export async function getStats() {
 }
 
 /**
- * Pure computation of "stats after this sync" - takes no storage action, so
- * the sync engine can preview the root README content a commit WOULD produce
- * before that commit actually lands, then persist the same object via
- * updateStats() only once the commit has genuinely succeeded.
+ * Pure computation of stats after a proposed sync without writing to storage.
+ * Allows previewing root README markdown before committing, persisting only after GitHub confirms success.
  */
 export function computeUpdatedStats(currentStats, difficulty, problemSlug, fileShas, mainTopic = 'DSA', subTopic = 'General', problemMeta = {}) {
   const stats = {
@@ -165,9 +156,10 @@ export function computeUpdatedStats(currentStats, difficulty, problemSlug, fileS
 
   if (!stats.shas[problemSlug]) {
     stats.solved = (stats.solved || 0) + 1;
-    const diffLower = (difficulty || 'medium').toLowerCase();
-    if (diffLower.includes('easy')) stats.easy = (stats.easy || 0) + 1;
-    else if (diffLower.includes('hard')) stats.hard = (stats.hard || 0) + 1;
+    // Folds 'unspecified' into medium bucket for aggregate tallies, while preserving the raw difficulty label in problem metadata.
+    const bucket = classifyDifficulty(difficulty);
+    if (bucket === 'easy') stats.easy = (stats.easy || 0) + 1;
+    else if (bucket === 'hard') stats.hard = (stats.hard || 0) + 1;
     else stats.medium = (stats.medium || 0) + 1;
   }
 
@@ -176,9 +168,7 @@ export function computeUpdatedStats(currentStats, difficulty, problemSlug, fileS
     ...fileShas
   };
 
-  // Keyed by slug+file (matching isDebounced/isCodeIdentical below) so this
-  // dual-detection-channel dedup guard doesn't throttle a genuinely different
-  // file just because another tab of the same problem synced moments earlier.
+  // Keyed by slug+fileName so submitting different solution tabs does not throttle each other.
   const syncTimeKey = problemMeta.codeFileName ? `${problemSlug}::${problemMeta.codeFileName}` : problemSlug;
   stats.last_sync_time[syncTimeKey] = Date.now();
 
@@ -187,18 +177,14 @@ export function computeUpdatedStats(currentStats, difficulty, problemSlug, fileS
 
   const existingProb = stats.problems[problemSlug] || {};
 
-  // Legacy field, kept for scanAndSyncRepoStats' repo-reconciliation path and any
-  // stats predating the per-file `files` map below - keyed by extension, so it
-  // still only ever holds the LAST file of a given language (as before).
+  // Legacy field keyed by extension, retained for backwards compatibility with older stats caches.
   const languages = { ...(existingProb.languages || {}) };
   if (problemMeta.codeFileName) {
     const ext = problemMeta.codeFileName.split('.').pop() || 'code';
     languages[ext] = problemMeta.codeFileName;
   }
 
-  // Keyed by filename, not extension, so two same-language tabs ("Brute.java" +
-  // "Optimal.java") both survive instead of the second silently overwriting the
-  // first in the root README's Solution(s) column.
+  // Keyed by filename so multiple tabs in the same language (e.g. Brute.java, Optimal.java) both survive in the README table.
   const files = { ...(existingProb.files || {}) };
   if (problemMeta.codeFileName) {
     const ext = problemMeta.codeFileName.split('.').pop() || 'code';
@@ -210,7 +196,7 @@ export function computeUpdatedStats(currentStats, difficulty, problemSlug, fileS
 
   stats.problems[problemSlug] = {
     title: problemMeta.title || existingProb.title || problemSlug,
-    difficulty: difficulty || existingProb.difficulty || 'Medium',
+    difficulty: difficulty || existingProb.difficulty || 'Unspecified',
     mainTopic,
     subTopic,
     codeFileName: problemMeta.codeFileName || existingProb.codeFileName || 'solution.cpp',
@@ -239,9 +225,7 @@ function generateHashCode(str) {
   return hash.toString(36);
 }
 
-// Keyed by slug + filename, not slug alone - once a problem can have multiple
-// solution files (per-tab sync), a slug-only key would let syncing Tab-2's code
-// corrupt the "did Tab-1 change" check for Tab-1's own file.
+// Keyed by slug + filename so syncing a second tab does not invalidate the change detection hash of the first tab.
 function codeHashKey(slug, fileName) {
   return `${slug}::${fileName}`;
 }
@@ -297,8 +281,7 @@ export async function clearOfflineQueue() {
 }
 
 /**
- * Replaces the queue wholesale. Used by the flush loop to retain items that
- * failed to replay instead of dropping them.
+ * Replaces the queue wholesale, allowing the flush loop to retain unplayed items on failure.
  */
 export async function setOfflineQueue(queue) {
   await safeSetStorage({ tufhub_queue: Array.isArray(queue) ? queue : [] });
@@ -388,10 +371,11 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
               const folderPath = titleMatch ? titleMatch[2].replace('./', '') : '';
               const slug = folderPath ? folderPath.split('/').pop() : '';
 
-              const diffText = cols[3] || 'Medium';
-              let difficulty = 'Medium';
+              const diffText = cols[3] || 'Unspecified';
+              let difficulty = 'Unspecified';
               if (diffText.toLowerCase().includes('easy')) difficulty = 'Easy';
               else if (diffText.toLowerCase().includes('hard')) difficulty = 'Hard';
+              else if (diffText.toLowerCase().includes('medium')) difficulty = 'Medium';
 
               if (slug && slug !== '-' && title !== 'No problems synced yet') {
                 parsedCount++;
@@ -425,6 +409,9 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
                   languages[ext] = primaryCodeFileName;
                 }
 
+                // Preserve prior updatedAt timestamp from local cache so metadata scans do not falsely mark all problems as synced today.
+                // Renders as null (hyphen) when unknown, which accurately indicates historical status.
+                const priorUpdatedAt = stats.problems[slug] ? stats.problems[slug].updatedAt : null;
                 stats.problems[slug] = {
                   title,
                   difficulty,
@@ -433,7 +420,7 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
                   folderPath,
                   codeFileName: primaryCodeFileName,
                   languages,
-                  updatedAt: Date.now()
+                  updatedAt: priorUpdatedAt || null
                 };
               }
             }
@@ -522,9 +509,7 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
 }
 
 // -------------------------------------------------------------
-// True repo reconciliation (Sync button) - scans the actual git tree as
-// ground truth and rewrites the root README to match, instead of the cheap
-// path above which only mirrors whatever the README already says.
+// True repo reconciliation (Sync button): scans the actual git tree and rewrites the root README to match.
 // -------------------------------------------------------------
 const RECONCILE_COOLDOWN_MS = 60 * 1000;
 const RATE_LIMIT_FLOOR = 50;
@@ -539,12 +524,10 @@ async function fetchTree(token, hook, branch) {
 }
 
 /**
- * Last-commit date for a path (directory or file). TUFHub commits a
- * problem's solution + README together in one atomic commit, so any path
- * under a folder gives an accurate "last touched" date for the whole folder.
- * Only called for folders already known to be duplicates - bounded, not a
- * blanket cost added to every reconcile. Non-fatal on failure: the caller
- * just won't have a timestamp to show for that folder.
+ * Fetches last-commit date for a repository path (directory or file).
+ * Solutions and README files are committed together in one atomic commit, so any path under a folder gives an accurate last-touched date.
+ * Backfills authentic updatedAt timestamps from GitHub commit history during reconciliation.
+ * Non-fatal on failure: callers fall back gracefully without breaking repository reconciliation.
  */
 async function fetchLastCommitDate(token, hook, path) {
   try {
@@ -565,10 +548,9 @@ async function fetchLastCommitDate(token, hook, path) {
 }
 
 /**
- * Reconstructs the display label for a file from its own name, matching
- * exactly how deriveFileLabel() names files at sync time - so a name like
- * "Optimal.java" round-trips to label "Optimal", and legacy "solution.java"
- * round-trips to the pre-existing bare-extension label "JAVA".
+ * Reconstructs the display label for a file from its filename, matching deriveFileLabel() naming logic.
+ * Multi-tab files (e.g. "Optimal.java") round-trip to their tab label ("Optimal").
+ * Legacy single-tab files ("solution.java") round-trip to their uppercase extension ("JAVA").
  */
 function labelFromFileName(fileName) {
   const dot = fileName.lastIndexOf('.');
@@ -623,16 +605,14 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
 
   const tree = Array.isArray(treeData.tree) ? treeData.tree : [];
 
-  // Group blobs by parent folder. A folder only counts as a real, currently-
-  // existing problem if it contains a README.md blob - every problem folder
-  // gets one via buildProblemReadme, which is a far more reliable signal than
-  // matching a filename substring (the old fallback's `includes('solution.')`
-  // check, which misses the v1.2.0 Solution-N/custom-name naming entirely).
+  // Group blobs by parent folder to identify valid problem directories.
+  // NOTE: A folder counts as a problem only when it contains a README.md blob created by buildProblemReadme.
+  // NOTE: Checking for README.md is far more reliable than matching solution file prefixes, which misses custom tab names and multi-solution files.
   const folders = new Map(); // folderPath -> { hasReadme, files: [{name, sha}] }
   for (const item of tree) {
     if (item.type !== 'blob') continue;
     const parts = item.path.split('/');
-    if (parts.length < 2) continue; // root-level file, e.g. the repo's own README.md - not a problem folder
+    if (parts.length < 2) continue; // Skip root-level files (such as root README.md).
     const fileName = parts[parts.length - 1];
     const folderPath = parts.slice(0, -1).join('/');
 
@@ -650,12 +630,12 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
   const reconciledProblems = {};
   const reconciledShas = {};
   const liveSlugs = new Set();
-  const slugToFolders = new Map(); // slug -> [folderPath, ...] - same slug in 2+ folders means
-  // reconciledProblems[slug] below silently overwrites one with the other; surfaced as
-  // `duplicates` in the return value so the caller can warn instead of losing one silently.
+  const slugToFolders = new Map(); // slug -> [folderPath, ...]: tracks multiple folders per slug to surface duplicate folder warnings.
 
-  for (const [folderPath, entry] of folders) {
-    if (!entry.hasReadme || entry.files.length === 0) continue;
+  // Backfill updatedAt timestamps from GitHub commit history rather than trusting local storage cache.
+  // Self-heals local storage timestamps against previous reconcile stomping bugs.
+  await Promise.all(Array.from(folders.entries()).map(async ([folderPath, entry]) => {
+    if (!entry.hasReadme || entry.files.length === 0) return;
     const parts = folderPath.split('/');
     const slug = parts[parts.length - 1];
     liveSlugs.add(slug);
@@ -670,22 +650,20 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
       shas[f.name] = f.sha;
     });
 
+    const realUpdatedAt = await fetchLastCommitDate(token, hook, folderPath);
     const cached = existingProblems[slug];
     if (cached) {
-      // Known to this browser - trust its title/difficulty/mainTopic/subTopic
-      // (richer than anything derivable from the tree), refresh only the
-      // file listing to match what's actually there now.
+      // Known to this browser: retain locally cached title and category metadata, refreshing only file listings and commit timestamps.
+      // NOTE: Cached metadata is richer than tree path fragments, while GitHub commit dates prevent timestamp drift.
       reconciledProblems[slug] = {
         ...cached,
         folderPath,
         files,
-        updatedAt: Date.now()
+        updatedAt: realUpdatedAt || cached.updatedAt || null
       };
     } else {
-      // Unknown to this browser (different profile, cleared storage).
-      // Placeholder metadata only - deliberately not fetching this folder's
-      // own README for exact title/difficulty, which would cost one extra
-      // API call per unknown folder and scale badly for a large gap.
+      // Unknown to this browser (e.g. fresh install, cleared storage, or different machine).
+      // NOTE: Uses placeholder metadata derived from path structure to avoid an expensive API call per unknown problem folder.
       reconciledProblems[slug] = {
         title: slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
         difficulty: 'Medium',
@@ -693,11 +671,11 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
         codeFileName: entry.files[0].name,
         languages: {},
         files,
-        updatedAt: Date.now()
+        updatedAt: realUpdatedAt || null
       };
     }
     reconciledShas[slug] = shas;
-  }
+  }));
 
   const duplicateSlugEntries = Array.from(slugToFolders.entries()).filter(([, folderPaths]) => folderPaths.length > 1);
   const duplicates = await Promise.all(duplicateSlugEntries.map(async ([slug, folderPaths]) => ({
@@ -714,10 +692,10 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
   const solvedSlugs = Object.keys(reconciledProblems);
   const counts = { solved: solvedSlugs.length, easy: 0, medium: 0, hard: 0 };
   solvedSlugs.forEach(slug => {
-    const d = (reconciledProblems[slug].difficulty || 'medium').toLowerCase();
-    if (d.includes('easy')) counts.easy++;
-    else if (d.includes('hard')) counts.hard++;
-    else counts.medium++;
+    const bucket = classifyDifficulty(reconciledProblems[slug].difficulty);
+    if (bucket === 'easy') counts.easy++;
+    else if (bucket === 'hard') counts.hard++;
+    else counts.medium++; // folds 'unspecified' in too, same as computeUpdatedStats' tally
   });
 
   const hierarchy = {};
@@ -729,10 +707,8 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
     }
   });
 
-  // Purge dedup/debounce state for dropped slugs so a since-deleted-then-
-  // resubmitted problem can't be mistaken for an unchanged duplicate. Both
-  // maps are keyed `slug::fileName` (v1.2.0), so split on the separator
-  // rather than doing a plain key lookup.
+  // Purge dedup and debounce state for removed slugs so re-added problems are not misidentified as duplicates.
+  // NOTE: Storage maps are keyed as slug::fileName, requiring a prefix split check rather than a plain key lookup.
   const removedSlugs = Object.keys(existingProblems).filter(slug => !liveSlugs.has(slug));
   const hashData = await safeGetStorage('tufhub_code_hashes');
   const codeHashes = hashData.tufhub_code_hashes || {};
@@ -794,19 +770,16 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
       hook,
       'README.md',
       generatedContent,
-      'Update ROOT README.md problem index - TUFHub (manual sync)',
+      'Update ROOT README.md problem index (TUFHub manual sync)',
       readmeSha
     );
   } catch (e) {
-    // Repo left untouched on a failed write - local stats intentionally NOT
-    // persisted here, so a retry starts from the same known-good state.
+    // Repo remains untouched on write failure: local stats are intentionally not updated so retry starts clean.
     return { ok: false, reason: 'error', message: e && e.message };
   }
 
-  // Persisted only after the write succeeds: if the worker is killed between
-  // the two, the repo (ground truth) is correct and local stats are merely
-  // stale, which the next reconcile fixes. The reverse order could leave
-  // local state claiming a sync that never actually reached GitHub.
+  // Persisted only after the write succeeds: if the worker dies, the repo remains ground truth and local stats are merely stale.
+  // Stale local stats self-heal on next reconcile, whereas saving storage first risks claiming a sync that never reached GitHub.
   await safeSetStorage({ stats: reconciledStats, tufhub_code_hashes: purgedHashes });
   await safeSetStorage({ tufhub_last_reconcile_at: Date.now() });
 

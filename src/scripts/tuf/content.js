@@ -25,36 +25,19 @@ import {
 import { showToast } from './toast.js';
 import { LANGUAGE_MAP, convertToSlug, addLeadingZeros, deriveCodeFileName, deriveFileLabel } from '../util.js';
 
-// Wall-clock budget for the DOM backup watcher. Deliberately generous: a cold
-// judge after an idle period routinely takes far longer than the 15s the
-// previous build allowed, and setInterval is throttled in background tabs, so
-// this is measured against Date.now() rather than a poll count.
+// Wall-clock budget for the DOM backup watcher (5 minutes) measured against Date.now() rather than throttled setInterval ticks.
 const DOM_WATCH_MS = 5 * 60 * 1000;
 
-// Keyed by `${url}::${tabLabel}`, not a single global timestamp - a bare global
-// would block a genuinely different tab's verdict if two tabs' submissions
-// resolve within 5s of each other. Still guards its original purpose: the
-// interceptor's CustomEvent and the DOM watcher's own poll both firing for the
-// exact same physical verdict.
-//
-// Anchored on window, not a fresh module-scope object, because background.js
-// can legitimately re-inject this bundle into the same live tab (SPA
-// navigation re-arm below) - each injection gets a brand new module scope, so
-// a plain `{}` here would give every re-injected copy its own blind dedup map
-// and let them all race commitFiles() on the same accepted-submission event.
-// Sharing the object means whichever handler runs first (event listeners fire
-// synchronously up to their first await) claims the key before the next one
-// checks it.
+// Keyed by `${url}::${tabLabel}` on window.__TUFHUB_LAST_SYNC_TS__ to prevent duplicate syncs across re-injected scopes.
+// Ensures interceptor CustomEvent and DOM backup watcher do not double-commit the same physical submission.
 if (!window.__TUFHUB_LAST_SYNC_TS__) window.__TUFHUB_LAST_SYNC_TS__ = {};
 let lastSyncTimestamps = window.__TUFHUB_LAST_SYNC_TS__;
 let isUserSubmitting = false;
 let submitTimeout = null;
 let verdictInterval = null;
-// Captured at Submit-click time (registerSubmitIntent) and read when the DOM
-// watcher's own verdict poll fires later - mirrors the interceptor's arm-time
-// capture in the MAIN world, so this backup channel doesn't misattribute a tab
-// switch that happens while a slow judge is still running.
+// Snapshotted at Submit click time to prevent tab-switching during slow judge evaluation from attaching the wrong solution.
 let armedTabInfo = { label: '', count: 0 };
+let armedCode = '';
 
 function extensionVersion() {
   try {
@@ -73,9 +56,7 @@ function interceptorVersion() {
 }
 
 /**
- * MV3 sendMessage returns a promise when called without a callback; if the
- * worker cannot be woken or the context is orphaned that becomes an unhandled
- * rejection. Always route fire-and-forget messages through here.
+ * Fire-and-forget wrapper for chrome.runtime.sendMessage that absorbs unhandled rejections if the worker is sleeping.
  */
 function safeSendMessage(message) {
   try {
@@ -86,17 +67,8 @@ function safeSendMessage(message) {
 }
 
 /**
- * Awaited (not fire-and-forget) unlike safeSendMessage above - the caller
- * needs the commit result/error to drive its own try/catch and toast logic.
- * Routes the actual commitFiles() call through background.js's serialized
- * write queue so this tab's calls can never race another tab's, the popup's
- * delete/reconcile, or its own overlapping callers - content.js keeps no
- * lock of its own.
- *
- * Reconstructs a real Error on failure so executeGitHubSync's existing
- * catch-block message-sniffing (403/401/404/network-error regexes) keeps
- * working unchanged - only the message TEXT crosses the sendMessage
- * boundary, since thrown Error objects don't structurally clone.
+ * Routes commitFiles() through background.js write queue to serialize commits across tabs and popup actions.
+ * Throws a reconstructed Error on failure so callers can catch and inspect status codes.
  */
 async function sendGitHubCommitMessage(files, commitMessage, slug, codeFileName, code) {
   if (!isExtensionContextAlive()) {
@@ -141,9 +113,7 @@ async function onAcceptedSubmission(event) {
     data.code = code;
   }
 
-  // Deduplicate syncs within 5 seconds (interceptor + DOM watcher can both fire
-  // for the same verdict) without blocking a different tab's verdict landing
-  // in the same window.
+  // Deduplicates sync events within a 5-second window to prevent duplicate submissions from dual channels.
   const syncKey = `${data.url || ''}::${data.tabLabel || ''}`;
   if (Date.now() - (lastSyncTimestamps[syncKey] || 0) < 5000) {
     console.log('[TUFHub Content Script] ⏳ Duplicate event ignored (within 5s threshold).');
@@ -160,30 +130,59 @@ async function onAcceptedSubmission(event) {
 }
 
 /**
- * ISOLATED-world duplicate of the interceptor's tab scrape (MAIN world code
- * can't be imported here). See interceptor.js:getActiveTabInfo for the
- * selector rationale - keyed off the "Close <label>" aria-label, active tab
- * distinguished by its persistent (not hover-only) text-color class.
+ * Scrapes the active tab in the isolated world using ARIA role="tab" and aria-selected.
  */
 function getActiveTabInfoDOM() {
   try {
-    const closeButtons = Array.from(document.querySelectorAll('button[aria-label^="Close "]'));
-    if (closeButtons.length === 0) return { label: '', count: 0 };
-    const containers = closeButtons.map(btn => ({
-      label: (btn.getAttribute('aria-label') || '').replace(/^Close\s+/i, '').trim(),
-      container: btn.parentElement
-    })).filter(c => c.label && c.container);
-    if (containers.length === 0) return { label: '', count: 0 };
-    const active = containers.find(c => /text-black|dark:text-white/.test(c.container.className || ''));
-    return { label: (active || containers[0]).label, count: containers.length };
+    const tabs = Array.from(document.querySelectorAll('[role="tab"]'))
+      .filter(t => t.querySelector('button[aria-label^="Close "]'));
+    if (tabs.length === 0) return { label: '', count: 0 };
+
+    const labelOf = (tab) => {
+      const contentDiv = tab.children[1] || tab;
+      const clone = contentDiv.cloneNode(true);
+      clone.querySelectorAll('button').forEach(b => b.remove());
+      return clone.textContent.trim();
+    };
+
+    const active = tabs.find(t => t.getAttribute('aria-selected') === 'true');
+    const label = labelOf(active || tabs[0]);
+    return label ? { label, count: tabs.length } : { label: '', count: 0 };
   } catch (e) {
     return { label: '', count: 0 };
   }
 }
 
+/**
+ * Scrapes problem difficulty from the header tier button as a fallback for the DOM watcher channel.
+ * Defaults to 'Unspecified' when tier buttons have not rendered.
+ */
+function extractDifficultyFromDOMWatcher() {
+  try {
+    const h1 = document.querySelector('h1');
+    const headerButtons = h1 && h1.parentElement ? Array.from(h1.parentElement.querySelectorAll('button')) : [];
+    const tierBtn = headerButtons.find(b => {
+      const t = (b.innerText || '').trim().toLowerCase();
+      return t && t !== 'hints' && !t.startsWith('companies');
+    });
+    if (tierBtn) return tierBtn.innerText.trim();
+
+    const diffElem = document.querySelector('[class*="difficulty"]');
+    if (diffElem) return diffElem.innerText.trim();
+  } catch (e) {}
+  return 'Unspecified';
+}
+
 function extractCodeFromMonacoFallback() {
   try {
     if (window.monaco && window.monaco.editor) {
+      // Primary attempt: read model from active editor instance.
+      const editors = window.monaco.editor.getEditors ? window.monaco.editor.getEditors() : [];
+      if (editors.length > 0) {
+        const activeModel = editors[0].getModel();
+        const activeVal = activeModel ? activeModel.getValue() : '';
+        if (activeVal && activeVal.trim().length > 0) return activeVal;
+      }
       const models = window.monaco.editor.getModels();
       if (models && models.length > 0) {
         const val = models[0].getValue();
@@ -202,57 +201,47 @@ function extractCodeFromMonacoFallback() {
 }
 
 /**
- * @param {{isReplay?: boolean}} [opts] - isReplay is set only by flushOfflineQueue
- * replaying a previously-queued item. It suppresses the queue-push and the
- * per-item toast/badge on a repeat failure - flushOfflineQueue already owns
- * this item's retention (its own remaining[] bookkeeping) and shows one
- * consolidated toast for the whole pass, so re-enqueueing here too would
- * race flushOfflineQueue's own read-modify-write of the same storage key.
- * @returns {Promise<{ok: boolean, reasonCode: string}>} so the offline-queue
- * flush can tell a real success from a swallowed failure.
+ * Orchestrates GitHub commit pipeline for an accepted problem submission.
+ * Handles slug derivation, deduplication, README generation, and error badge updates.
  */
 async function executeGitHubSync(data, opts = {}) {
   const isReplay = !!opts.isReplay;
   let rawTitle = 'Unknown Problem';
 
-  // Everything below runs inside the try. In the previous build the slug/route
-  // resolution and the debounce check ran *before* it and before the first
-  // toast, so any throw there became an unhandled rejection with zero feedback.
+  // Wrap slug resolution, debounce check, and network sync inside try block to guarantee error toast on failure.
   try {
     rawTitle = data.title;
     if (!rawTitle || rawTitle === 'Unknown Problem' || rawTitle.length > 80) {
       rawTitle = extractTitleFromUrl() || 'Unknown Problem';
     }
 
-    const slug = addLeadingZeros(convertToSlug(rawTitle));
     const routeInfo = resolveHierarchy(data);
+
+    // Learning articles, quiz sets, and prep hub pages are intentionally skipped since no code artifact exists.
+    if (routeInfo.supported === false) {
+      console.log(`[TUFHub Sync Engine] ⏭️ Unsupported page type (${routeInfo.type}). Skipping sync.`);
+      await pushDiag('SKIPPED', 'UNSUPPORTED_PAGE_TYPE', `${routeInfo.type} ${data.url || window.location.href}`);
+      return { ok: true, reasonCode: 'UNSUPPORTED_PAGE_TYPE' };
+    }
+
+    // Derive slug from URL path segment rather than page title to avoid zero-padded numbering mismatches.
+    const slug = routeInfo.slug || addLeadingZeros(convertToSlug(rawTitle));
     const folderPath = `${routeInfo.folderPath}/${slug}`;
 
     console.log(`[TUFHub Sync Engine] 🚀 Category: [${routeInfo.category}] Target Path: ${folderPath}`);
 
-    // Detect an orphaned content script explicitly. Without this, an extension
-    // update under an open tab makes every storage read return {} and the sync
-    // engine reports "GitHub not connected", sending you after the wrong bug.
+    // Verify extension context is alive before reading storage or communicating with background worker.
     if (!isExtensionContextAlive()) {
       console.warn('[TUFHub Sync Engine] ❌ Extension context invalidated (extension was updated or reloaded).');
       showToast('TUFHub was updated. Reload this page to resume syncing.', 'error', 'EXTENSION_RELOADED');
       return { ok: false, reasonCode: 'EXTENSION_RELOADED' };
     }
 
-    // Hoisted above both dedup checks below: isDebounced and isCodeIdentical are
-    // both per-*file* now, not per-problem, since a problem can have multiple
-    // valid target files once 2+ tabs exist. tabLabel/tabCount come from the
-    // interceptor's armState (captured at arm-time) or the DOM watcher's own
-    // scrape - either way, count < 2 means deriveCodeFileName falls back to the
-    // legacy solution.<ext>.
+    // File derivation is per-tab: tabLabel and tabCount determine Solution-N or custom filename.
     const ext = LANGUAGE_MAP[(data.language || '').toLowerCase()] || (routeInfo.category === 'SQL' ? 'sql' : 'cpp');
     const codeFileName = deriveCodeFileName(data.tabLabel, data.tabCount, ext);
 
-    // Keyed by slug+file, not slug alone - otherwise submitting Tab-2 within 5s
-    // of Tab-1 gets silently skipped as "already synced" even though it's a
-    // distinct, wanted file. This guard exists to stop the interceptor and the
-    // DOM-watcher backup channel from double-syncing the SAME verdict, not to
-    // throttle genuinely different submissions.
+    // Cooldown is keyed by slug + filename to allow separate solution tabs to sync without blocking each other.
     const debounced = await isDebounced(slug, codeFileName, 5000);
     if (debounced) {
       console.log(`[TUFHub Sync Engine] ⏳ Cooldown active for ${slug}/${codeFileName}. Skipping duplicate.`);
@@ -309,10 +298,8 @@ async function executeGitHubSync(data, opts = {}) {
       folderPath
     };
 
-    // Preview what stats WOULD look like after this sync (pure, no storage
-    // write) so the root README's content can be decided and, if it changed,
-    // folded into the same commit as the solution file and problem README -
-    // real local stats are only persisted below once the commit has landed.
+    // Previews updated stats in memory to determine whether root README changes can fold into this commit.
+    // Local storage stats are only updated once the commit successfully lands on GitHub.
     const previewStats = computeUpdatedStats(stats, data.difficulty, slug, {}, mainCategory, mainTopic, problemMeta);
     const rootReadmeFile = await buildRootReadmeFile(token, hook, previewStats);
 
@@ -324,17 +311,14 @@ async function executeGitHubSync(data, opts = {}) {
 
     const commitRes = await sendGitHubCommitMessage(
       files,
-      `Sync ${rawTitle} [${mainCategory}] - TUFHub`,
+      `Sync ${rawTitle} [${mainCategory}] (TUFHub)`,
       slug,
       codeFileName,
       data.code
     );
 
     if (commitRes.skipped) {
-      // Caught here, not earlier: this resubmission looked new when this
-      // function's own isCodeIdentical check ran above, but another queued
-      // write for the same slug+file landed first while this one waited its
-      // turn in background.js's serialized write queue.
+      // Catches redundant submissions that completed while waiting in background.js's serialized write queue.
       console.log(`[TUFHub Sync Engine] ⏳ Code is exactly the same for ${slug}/${codeFileName} (caught at write time). Skipping duplicate sync.`);
       await pushDiag('SKIPPED', 'CODE_UNCHANGED', `${slug}/${codeFileName}`);
       showToast(`Exact same code already synced for ${rawTitle}.`, 'info');
@@ -388,10 +372,7 @@ async function executeGitHubSync(data, opts = {}) {
       return { ok: false, reasonCode: 'EXTENSION_RELOADED' };
     }
 
-    // navigator.onLine reports true as soon as an interface is up, which is
-    // exactly the state a machine is in right after waking from sleep while the
-    // connection is not yet usable. Treat fetch-level failures as offline too,
-    // otherwise those syncs were shown once and dropped forever.
+    // Treats fetch-level network failures as offline so wake-from-sleep errors are safely queued.
     const isNetworkError = (err instanceof TypeError) ||
       /failed to fetch|networkerror|network error|load failed/i.test(message);
 
@@ -407,15 +388,8 @@ async function executeGitHubSync(data, opts = {}) {
       return { ok: false, reasonCode: 'NO_INTERNET' };
     }
 
-    // GitHub's git-refs endpoint can stay briefly inconsistent right after a
-    // write to the same branch, even with zero competing writers - confirmed
-    // via repo commit history showing no other writer in the window, on a
-    // repo with a single collaborator and no webhooks/Actions/branch
-    // protection. commitTreeEntries already retries 5x with a fresh HEAD read
-    // each time (uploader.js); this is what's left after that's exhausted.
-    // Matched on a literal prefix we control (uploader.js's thrown message),
-    // not GitHub's free-text detail appended after it, so this stays reliable
-    // regardless of what that text ever contains.
+    // NOTE: Handles branch ref update conflicts that persist after commitTreeEntries internal retries.
+    // Enqueues the submission for automatic retry when GitHub ref propagation catches up.
     if (message.includes('Ref Update Conflict')) {
       if (!isReplay) await enqueueOfflineSync(data);
       await pushDiag('QUEUED', 'GITHUB_SYNC_LAG', message);
@@ -443,26 +417,19 @@ async function executeGitHubSync(data, opts = {}) {
   }
 }
 
-// Flush-level retries for one queued item, not commitTreeEntries's own
-// internal per-attempt retries. Each flush attempt already retries up to 5x
-// internally over ~12-15s, so 6 flush-level attempts (spread across page
-// navigations / reconnects, potentially minutes to hours apart) is generous
-// for a genuinely transient GitHub-side lag while still bounding a
-// hypothetically permanent conflict instead of retrying it forever.
+// Flush-level retry budget across navigations (maximum 6 attempts) to handle transient git ref lag without retrying forever.
 const MAX_QUEUE_ATTEMPTS = 6;
 
 async function flushOfflineQueue() {
   const queue = await getOfflineQueue();
   if (queue.length === 0) return;
 
-  // Not "offline items" - the queue also holds ref-conflict retries queued
-  // while fully online, so this copy (and the toast below) stays neutral.
+  // The queue holds both offline solutions and online ref-conflict retries.
+  // NOTE: Retains un-synced items in the queue if replaying fails or if the tab closes mid-flush.
+  // NOTE: Clearing the queue up front would permanently lose submissions whenever replay encounters errors.
   console.log(`[TUFHub Sync Engine] 📡 Retrying ${queue.length} queued item(s)...`);
   showToast(`Retrying ${queue.length} queued sync(s)...`, 'syncing');
 
-  // Retain anything that does not actually land. The previous build cleared the
-  // queue up front, so a failed replay - or a tab close mid-flush - lost the
-  // solution permanently.
   const processedIds = new Set(queue.map(item => item.id));
   const remaining = [];
   let gaveUpAny = false;
@@ -487,18 +454,15 @@ async function flushOfflineQueue() {
 
     if (attempts >= MAX_QUEUE_ATTEMPTS) {
       gaveUpAny = true;
-      await pushDiag('FAILED', 'QUEUE_GAVE_UP', `${item.syncData?.title || 'item'} - gave up after ${attempts} attempts (${lastReasonCode})`);
+      await pushDiag('FAILED', 'QUEUE_GAVE_UP', `${item.syncData?.title || 'item'}: gave up after ${attempts} attempts (${lastReasonCode})`);
     } else {
       remaining.push({ ...item, attempts });
     }
   }
 
-  // Reconcile against a fresh read instead of blindly overwriting: the
-  // isReplay flag above stops THIS function's own replay calls from
-  // re-enqueueing on failure, but a second tab's own live (non-replay)
-  // executeGitHubSync call can still enqueue a genuinely new item while this
-  // loop is running. A blind overwrite here would silently drop that item;
-  // keeping anything outside processedIds preserves it.
+  // Reconciles against a fresh read instead of blindly overwriting queue storage.
+  // NOTE: A concurrent tab may enqueue a new submission while this flush loop is actively executing.
+  // NOTE: Preserving fresh items outside processedIds prevents race conditions from dropping concurrent syncs.
   const freshQueue = await getOfflineQueue();
   const merged = freshQueue
     .filter(item => !processedIds.has(item.id))
@@ -553,16 +517,16 @@ function setupSubmitClickListeners() {
 }
 
 /**
- * Arms both detection channels. The MAIN-world interceptor has always listened
- * for TUFHUB_USER_SUBMIT_CLICKED, but nothing ever dispatched it, so its gate
- * could only be opened by observing the POST /judge/submit response. This gives
- * it a second, independent opener.
+ * Arms both detection channels (interceptor and DOM watcher) upon user submit click or shortcut.
  */
 function registerSubmitIntent() {
   try {
     window.dispatchEvent(new CustomEvent('TUFHUB_USER_SUBMIT_CLICKED'));
   } catch (e) {}
   armedTabInfo = getActiveTabInfoDOM();
+  // Snapshots code immediately at click time to prevent tab switches from capturing the wrong solution.
+  const freshCode = extractCodeFromMonacoFallback();
+  if (freshCode && freshCode.trim().length > 0) armedCode = freshCode;
   updateHealth({ lastSubmitIntentAt: Date.now(), lastSubmitIntentUrl: window.location.href });
   triggerDOMVerdictWatcher();
 }
@@ -584,9 +548,9 @@ function triggerDOMVerdictWatcher() {
     const bodyText = (document.body && document.body.innerText) || '';
     if (!/\bAccepted\b/.test(bodyText)) return;
 
-    // Tolerant of copy changes on TUF's side; the old build required the exact
-    // literal "Submission Verdict", so any wording tweak killed this channel.
-    const match = bodyText.match(/test\s*cases?\s*(?:passed)?\s*[:\-]?\s*(\d+)\s*\/\s*(\d+)/i);
+    // Evaluates test case completion from verdict text, supporting both 'test cases N/M' and 'Passed N/M'.
+    const match = bodyText.match(/test\s*cases?\s*(?:passed)?\s*[:\-]?\s*(\d+)\s*\/\s*(\d+)/i) ||
+      bodyText.match(/\bPassed\s+(\d+)\s*\/\s*(\d+)/i);
     if (!match) return;
 
     const passed = parseInt(match[1], 10);
@@ -600,17 +564,19 @@ function triggerDOMVerdictWatcher() {
     const domSyncKey = `${window.location.href}::${armedTabInfo.label || ''}`;
     if (Date.now() - (lastSyncTimestamps[domSyncKey] || 0) > 5000) {
       lastSyncTimestamps[domSyncKey] = Date.now();
-      const code = extractCodeFromMonacoFallback();
-      const titleElem = document.querySelector('h1, [class*="title"], [class*="problem-name"]');
-      const diffElem = document.querySelector('[class*="difficulty"], [class*="badge"]');
+      // Use code snapshotted at Submit click time over a fresh scrape to prevent tabbing away from corrupting the solution.
+      const freshFallback = extractCodeFromMonacoFallback();
+      const code = (armedCode && armedCode.trim().length > 0) ? armedCode : freshFallback;
+      // Scrape current problem title from page h1 element or URL fallback.
+      const h1Elem = document.querySelector('h1');
 
       pushDiag('VERDICT_ACCEPTED', 'DOM_WATCHER', `${passed}/${total}`);
 
       executeGitHubSync({
         code,
         language: window.location.pathname.includes('sql') ? 'sql' : 'cpp',
-        title: titleElem ? titleElem.innerText.trim() : extractTitleFromUrl(),
-        difficulty: diffElem ? diffElem.innerText.trim() : 'Medium',
+        title: h1Elem ? h1Elem.innerText.trim() : extractTitleFromUrl(),
+        difficulty: extractDifficultyFromDOMWatcher(),
         description: '',
         url: window.location.href,
         timestamp: Date.now(),
@@ -660,15 +626,10 @@ function handleUnhandledRejection(event) {
 }
 
 /**
- * Registers `handler` for `type` on `target`, first removing whatever handler
- * a PRIOR injection of this same bundle registered under `stateKey`. window
- * (and, transitively, document) persists across repeat chrome.scripting
- * .executeScript() calls into the same isolated world, but each call gets a
- * fresh module scope - so without this, every re-injection (background.js
- * re-arms this script on every SPA navigation, and can legitimately fire more
- * than once for one navigation) stacks another live listener instead of
- * replacing the old one. N stacked listeners means N independent GitHub
- * commits for one accepted submission.
+ * Registers an idempotent singleton event listener, removing any prior listener registered under stateKey.
+ * NOTE: window and document persist across repeated chrome.scripting.executeScript calls into the isolated world.
+ * NOTE: Each injection receives a fresh module scope, which would stack duplicate listeners without this cleanup.
+ * NOTE: Stacking duplicate listeners would trigger N independent GitHub commits for a single accepted submission.
  */
 function singletonListener(target, type, handler, stateKey, useCapture = false) {
   const prev = window[stateKey];
@@ -678,17 +639,9 @@ function singletonListener(target, type, handler, stateKey, useCapture = false) 
 }
 
 /**
- * background.js's ensureScriptsInjected only re-injects this script when a
- * TUFHUB_PING to the tab goes unanswered - a live instance surviving ordinary
- * SPA navigation between problems is the common case, not the exception
- * (confirmed live: a queued item sat untouched across several problem
- * navigations in the same tab). That means initTUFHub, and the
- * flushOfflineQueue() call at its end, can go uncalled for the tab's entire
- * remaining lifetime after first load. The 'online' listener above only
- * fires on a genuine network state change. A periodic in-tab flush is the
- * only trigger that depends on neither. Idempotent-replace, same pattern as
- * singletonListener above, since initTUFHub can legitimately run again later
- * (a real reload/re-injection) and would otherwise stack a second timer.
+ * Starts a 60-second periodic queue flush interval for surviving tabs.
+ * NOTE: ensureScriptsInjected only injects when TUFHUB_PING goes unanswered, so surviving tabs do not re-run init.
+ * NOTE: A periodic in-tab flush ensures queued items replay even without network state changes or page reloads.
  */
 function startQueueFlushInterval() {
   if (window.__TUFHUB_QUEUE_INTERVAL__) clearInterval(window.__TUFHUB_QUEUE_INTERVAL__);
@@ -696,8 +649,7 @@ function startQueueFlushInterval() {
 }
 
 // -------------------------------------------------------------
-// Initialization (idempotent - the background worker re-injects this script
-// after SPA navigations, and duplicate listeners would double-sync)
+// Initialization (idempotent; re-injection safe)
 // -------------------------------------------------------------
 function initTUFHub() {
   const version = extensionVersion();
@@ -751,16 +703,9 @@ let shouldInit = false;
 if (!window.__TUFHUB_CONTENT_INITED__) {
   shouldInit = true;
 } else if (isExtensionContextAlive()) {
-  // The flag can be stale: it may have been set by an earlier instance that is
-  // now orphaned (e.g. the extension was reloaded via chrome://extensions
-  // without reloading this tab). That old instance's chrome.* calls are dead,
-  // but it cannot signal that here - a dead context can't clear its own flag.
-  // The only reliable signal is the opposite: THIS execution only runs at all
-  // because background.js just freshly injected it, which means its own
-  // context is alive right now. So re-init whenever the current context is
-  // alive, regardless of what the flag says. A duplicate listener from the
-  // orphaned instance is harmless - it can never complete a chrome.* call, and
-  // the 5s dedupe in onAcceptedSubmission absorbs any double-fire.
+  // Re-initializes whenever the current extension context is alive, even if the inited flag was set by an orphaned instance.
+  // NOTE: An extension reload in chrome://extensions invalidates old contexts without clearing inited flags in existing tabs.
+  // NOTE: Fresh injections from background.js are confirmed alive, so re-initializing ensures valid API bindings.
   console.warn('[TUFHub Content Script] Re-initializing on a freshly injected, live context (flag was set by a prior instance).');
   shouldInit = true;
 }

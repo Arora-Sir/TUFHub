@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const privateToggle = document.getElementById('private-toggle');
   const welcomeRepoLink = document.getElementById('welcome-repo-link');
 
-  // Construct OAuth redirect URI using chrome.runtime.id - no identity permission needed
+  // Construct OAuth redirect URI using chrome.runtime.id: no identity permission needed
   const redirectUri = `https://${chrome.runtime.id}.chromiumapp.org/`;
 
   if (registerOauthLink) {
@@ -152,7 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({
           name: repoName,
           private: isPrivate,
-          description: 'A collection of TakeUForward (TUF+) solutions - Auto-synced with TUFHub',
+          description: 'A collection of TakeUForward (TUF+) solutions: auto-synced with TUFHub',
           auto_init: true
         })
       });
