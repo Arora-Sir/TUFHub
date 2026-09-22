@@ -3,14 +3,12 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-import { decode, normalizeReadmeForCompare } from '../util.js';
+import { decode, normalizeReadmeForCompare, classifyDifficulty } from '../util.js';
 
 /**
- * @returns {Promise<{path: string, content: string}|null>} null when the
- * generated content is identical to what's already on GitHub (after
- * normalizing out the date stamp) - the caller folds the returned entry into
- * a single multi-file commit, so this check is what keeps an unchanged index
- * out of that commit rather than preventing a standalone no-op PUT.
+ * Builds root README file payload.
+ * Returns null when generated content matches existing repository content after date normalization.
+ * @returns {Promise<{path: string, content: string}|null>}
  */
 export async function buildRootReadmeFile(token, hook, stats) {
   const readmePath = 'README.md';
@@ -50,7 +48,7 @@ export function generateRootReadmeMarkdown(stats) {
 
   let markdown = `# 🚀 TUF-Solutions
 
-> Auto-synced using [TUFHub](https://github.com/Arora-Sir/TUFHub) - Solutions for [TakeUForward (TUF+)](https://takeuforward.org/plus?affiliate=arorasir)
+> Auto-synced using [TUFHub](https://github.com/Arora-Sir/TUFHub): Solutions for [TakeUForward (TUF+)](https://takeuforward.org/pricing?affiliate=arorasir)
 
 ## 📊 Solution Progress Summary
 
@@ -61,74 +59,103 @@ export function generateRootReadmeMarkdown(stats) {
 ---
 
 ## 🗂️ Solved Problems Index
-
-| # | Title | Solution(s) | Difficulty | Category |
-| :---: | :--- | :---: | :---: | :--- |
 `;
 
   const problems = stats && stats.problems ? stats.problems : {};
   const slugs = Object.keys(problems).sort();
 
   if (slugs.length === 0) {
-    markdown += `| - | No problems synced yet | - | - | - |\n`;
+    markdown += `\nNo problems synced yet.\n`;
   } else {
-    slugs.forEach((slug, idx) => {
+    // Groups problems into dedicated tables per category (DSA, SQL, Design).
+    // Section headers represent categories, leaving table cells dedicated to specific topics.
+    const byCategory = {};
+    slugs.forEach(slug => {
       const p = problems[slug];
-      const numStr = (idx + 1).toString().padStart(4, '0');
-      const folderUrl = `./${p.folderPath.split('/').map(encodeURIComponent).join('/')}`;
-      
-      const diffBadge = (p.difficulty || 'Medium').toLowerCase().includes('easy')
-        ? '🟢 Easy'
-        : (p.difficulty || 'Medium').toLowerCase().includes('hard')
-        ? '🔴 Hard'
-        : '🟡 Medium';
+      const cat = resolveCategory(p);
+      (byCategory[cat] = byCategory[cat] || []).push(p);
+    });
 
-      let solutionLinks = '';
-      const files = p.files || {};
-      const fileNames = Object.keys(files).filter(fn => fn && files[fn]);
+    // Fixed category ordering prioritizes primary tracks (DSA, SQL, Design), with remaining subjects sorted alphabetically.
+    const PREFERRED_CATEGORY_ORDER = ['DSA', 'SQL', 'Design'];
+    const allCategories = Object.keys(byCategory);
+    const orderedCategories = [
+      ...PREFERRED_CATEGORY_ORDER.filter(c => allCategories.includes(c)),
+      ...allCategories.filter(c => !PREFERRED_CATEGORY_ORDER.includes(c)).sort()
+    ];
 
-      if (fileNames.length > 0) {
-        // Per-file map (from a sync since the multi-tab feature shipped) - one
-        // link per actual file, labeled with the tab's own name so a "Brute" and
-        // "Optimal" pair of same-language files don't collapse into one link.
-        solutionLinks = fileNames.map(fileName => {
-          const fileUrl = `${folderUrl}/${encodeURIComponent(fileName)}`;
-          return `[${files[fileName].label}](${fileUrl})`;
-        }).join(' ');
-      } else {
-        // Fallback for stats predating the `files` map (pre-multi-tab sync data).
-        const languages = p.languages || {};
-        const langExts = Object.keys(languages).filter(k => languages[k] && languages[k] !== 'undefined');
+    orderedCategories.forEach(cat => {
+      const items = byCategory[cat];
+      markdown += `\n### ${cat} (${items.length})\n\n`;
+      markdown += `| # | Title | Solution(s) | Difficulty | Topic | Last Synced |\n`;
+      markdown += `| :---: | :--- | :---: | :---: | :--- | :---: |\n`;
 
-        if (langExts.length > 0) {
-          solutionLinks = langExts.map(ext => {
-            const fileName = languages[ext];
+      items.forEach((p, idx) => {
+        const numStr = (idx + 1).toString().padStart(4, '0');
+        const folderUrl = `./${p.folderPath.split('/').map(encodeURIComponent).join('/')}`;
+
+        // Difficulty values are normalized to classic Easy, Medium, and Hard buckets for table consistency.
+        const diffBucket = classifyDifficulty(p.difficulty);
+        const diffBadge = diffBucket === 'easy'
+          ? '🟢 Easy'
+          : diffBucket === 'hard'
+          ? '🔴 Hard'
+          : diffBucket === 'medium'
+          ? '🟡 Medium'
+          : '⚪ Unspecified';
+
+        let solutionLinks = '';
+        const files = p.files || {};
+        const fileNames = Object.keys(files).filter(fn => fn && files[fn]);
+
+        if (fileNames.length > 0) {
+          // Generates distinct solution links labeled by tab name (e.g. Brute, Optimal) to preserve multi-tab strategies.
+          solutionLinks = fileNames.map(fileName => {
             const fileUrl = `${folderUrl}/${encodeURIComponent(fileName)}`;
-            return `[${ext.toUpperCase()}](${fileUrl})`;
+            return `[${files[fileName].label}](${fileUrl})`;
           }).join(' ');
         } else {
-          const safeFile = (p.codeFileName && p.codeFileName !== 'undefined') ? p.codeFileName : 'solution.java';
-          const ext = safeFile.split('.').pop() || 'java';
-          const fileUrl = `${folderUrl}/${encodeURIComponent(safeFile)}`;
-          solutionLinks = `[${ext.toUpperCase()}](${fileUrl})`;
-        }
-      }
+          // Fallback for stats predating the `files` map (pre-multi-tab sync data).
+          const languages = p.languages || {};
+          const langExts = Object.keys(languages).filter(k => languages[k] && languages[k] !== 'undefined');
 
-      const categoryCell = resolveCategoryAndTopic(p);
-      markdown += `| ${numStr} | [${p.title}](${folderUrl}) | ${solutionLinks} | ${diffBadge} | ${categoryCell} |\n`;
+          if (langExts.length > 0) {
+            solutionLinks = langExts.map(ext => {
+              const fileName = languages[ext];
+              const fileUrl = `${folderUrl}/${encodeURIComponent(fileName)}`;
+              return `[${ext.toUpperCase()}](${fileUrl})`;
+            }).join(' ');
+          } else {
+            const safeFile = (p.codeFileName && p.codeFileName !== 'undefined') ? p.codeFileName : 'solution.java';
+            const ext = safeFile.split('.').pop() || 'java';
+            const fileUrl = `${folderUrl}/${encodeURIComponent(safeFile)}`;
+            solutionLinks = `[${ext.toUpperCase()}](${fileUrl})`;
+          }
+        }
+
+        const topicCell = `\`${resolveTopic(p) || 'General'}\``;
+        // Reflects the date when the problem or its metadata was last synced to GitHub.
+        const lastSynced = p.updatedAt ? new Date(p.updatedAt).toISOString().split('T')[0] : '-';
+        markdown += `| ${numStr} | [${p.title}](${folderUrl}) | ${solutionLinks} | ${diffBadge} | ${topicCell} | \`${lastSynced}\` |\n`;
+      });
     });
   }
 
-  markdown += `\n---\n\n<p align="center">\n  Crafted with ❤️ for Problem Solvers by <a href="https://github.com/Arora-Sir">Mohit Arora</a> &nbsp;|&nbsp; Practice on <a href="https://takeuforward.org/plus?affiliate=arorasir">TakeUForward (TUF+)</a> &nbsp;|&nbsp; ⭐ <a href="https://github.com/Arora-Sir/TUFHub">Star TUFHub on GitHub</a>\n</p>\n`;
+  markdown += `\n---\n\n<p align="center">\n  Crafted with ❤️ for Problem Solvers by <a href="https://github.com/Arora-Sir">Mohit Arora</a> &nbsp;|&nbsp; Practice on <a href="https://takeuforward.org/pricing?affiliate=arorasir">TakeUForward (TUF+)</a> &nbsp;|&nbsp; ⭐ <a href="https://github.com/Arora-Sir/TUFHub">Star TUFHub on GitHub</a>\n</p>\n`;
 
   return markdown;
 }
 
-function resolveCategoryAndTopic(p) {
+function resolveCategory(p) {
+  const parts = (p.folderPath || '').split('/').filter(Boolean);
+  return parts[0] || 'DSA';
+}
+
+function resolveTopic(p) {
   const parts = (p.folderPath || '').split('/').filter(Boolean);
   const catName = parts[0] || 'DSA';
   const slug = parts[parts.length - 1] || '';
-  
+
   let topicName = '';
 
   if (parts.length >= 3) {
@@ -171,7 +198,5 @@ function resolveCategoryAndTopic(p) {
     else topicName = 'General';
   }
 
-  return topicName && topicName !== catName && topicName !== 'General'
-    ? `\`${catName}\` / \`${topicName}\``
-    : `\`${catName}\``;
+  return topicName && topicName !== catName ? topicName : 'General';
 }

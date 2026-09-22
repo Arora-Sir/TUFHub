@@ -1,4 +1,5 @@
 import { scanAndSyncRepoStats } from './tuf/stats.js';
+import { TUF_CONTENT_SCRIPT_URL } from './util.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   // Clear toolbar badge when popup opens
@@ -34,19 +35,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // -------------------------------------------------------------
   // Duplicate problem folders panel
-  //
-  // reconcileRepoFromTree groups repo folders by slug only, so a problem left
-  // behind in an old folder after a re-categorization silently overwrites down
-  // to one entry with no built-in warning. Persisted here (read from storage on
-  // every popup open, not just right after a manual Sync click) so it can't be
-  // missed by closing the popup before reading a transient message.
+  // NOTE: Surfaces duplicate repo folders left behind after problem re-categorization.
+  // Persists duplicate results in storage so warnings remain visible across popup sessions.
   // -------------------------------------------------------------
   const duplicatesSection = document.getElementById('duplicates-section');
   const duplicatesSummary = document.getElementById('duplicates-summary');
   const duplicatesBody = document.getElementById('duplicates-body');
   const copyDuplicatesBtn = document.getElementById('copy-duplicates-btn');
+  const deleteAllDuplicatesBtn = document.getElementById('delete-all-duplicates-btn');
 
   let repoHook = ''; // set once auth state loads below, reused in the delete confirm dialog
+
+  // Sorts folders newest first so star indicators match the version preserved during bulk deletion.
+  // NOTE: Newer copies reflect current categorization, while older copies predate topic fixes.
+  // NOTE: Null timestamps sort last so lookup errors are never mistaken for the oldest commit.
+  function sortNewestFirst(folders) {
+    return (folders || []).slice().sort((a, b) => {
+      if (a.lastModified == null) return 1;
+      if (b.lastModified == null) return -1;
+      return b.lastModified - a.lastModified;
+    });
+  }
 
   function renderDuplicates(duplicates) {
     if (!duplicatesSection || !duplicatesBody) return;
@@ -72,15 +81,8 @@ document.addEventListener('DOMContentLoaded', () => {
       title.textContent = slug;
       entry.appendChild(title);
 
-      // Newest commit first - the categorization fix landed this session, so
-      // for any duplicate the newer copy is the one written by the fix (correct
-      // topic) and the older one predates it (wrong topic). Nulls (lookup
-      // failed) sort last rather than being mistaken for "oldest".
-      const sortedFolders = (folders || []).slice().sort((a, b) => {
-        if (a.lastModified == null) return 1;
-        if (b.lastModified == null) return -1;
-        return b.lastModified - a.lastModified;
-      });
+      // Newest commit first: the newer folder reflects current categorization, while older copies predate it.
+      const sortedFolders = sortNewestFirst(folders);
 
       sortedFolders.forEach(({ folderPath, files, lastModified }, i) => {
         const pathRow = document.createElement('div');
@@ -112,12 +114,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const r = result || { reason: 'error' };
             if (r.ok === false) {
               deleteBtn.disabled = false;
-              deleteBtn.textContent = 'Delete failed - retry';
+              deleteBtn.textContent = 'Delete failed: retry';
               return;
             }
             if (r.stats) renderStats(r.stats);
-            // Re-render from the fresh post-delete result - this row disappears
-            // if it was the only remaining duplicate for this slug.
+            // Re-renders from the post-delete result so resolved duplicate rows disappear immediately.
             renderDuplicates(r.duplicates);
           });
         });
@@ -131,7 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const hint = document.createElement('div');
     hint.style.cssText = 'margin-top: 4px; padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, 0.1); opacity: 0.65;';
-    hint.textContent = 'Newest copy (green, ★) is usually the correct one to keep - delete the rest.';
+    hint.textContent = 'Newest copy (green, ★) is usually the correct one to keep; delete the rest.';
     duplicatesBody.appendChild(hint);
   }
 
@@ -146,6 +147,43 @@ document.addEventListener('DOMContentLoaded', () => {
       await navigator.clipboard.writeText(lines.join('\n'));
       copyDuplicatesBtn.innerText = 'Copied!';
       setTimeout(() => { copyDuplicatesBtn.innerText = 'Copy list'; }, 2000);
+    });
+  }
+
+  // NOTE: Removes all non-newest duplicate folders across every slug in a single atomic commit.
+  // Avoids rapid sequential commit ref-update conflicts on GitHub.
+  if (deleteAllDuplicatesBtn) {
+    deleteAllDuplicatesBtn.addEventListener('click', async () => {
+      const res = await chrome.storage.local.get(['tufhub_last_reconcile_result']);
+      const duplicates = (res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.duplicates) || [];
+
+      const toDelete = duplicates.flatMap(({ folders }) => sortNewestFirst(folders).slice(1));
+      if (toDelete.length === 0) return;
+
+      const confirmLines = duplicates.flatMap(({ slug, folders }) => {
+        const stale = sortNewestFirst(folders).slice(1);
+        return stale.length ? [slug, ...stale.map(f => `  - ${f.folderPath}`)] : [];
+      });
+      const ok = confirm(
+        `Delete ${toDelete.length} duplicate folder${toDelete.length > 1 ? 's' : ''} from ${repoHook || 'your repo'} in one commit? The newest (★) copy of each is kept.\n\nThis cannot be undone.\n\n${confirmLines.join('\n')}`
+      );
+      if (!ok) return;
+
+      deleteAllDuplicatesBtn.disabled = true;
+      deleteAllDuplicatesBtn.textContent = 'Deleting...';
+
+      const items = toDelete.map(({ folderPath, files }) => ({ folderPath, paths: files }));
+      chrome.runtime.sendMessage({ type: 'DELETE_ALL_DUPLICATE_FOLDERS', items }, (result) => {
+        const r = result || { reason: 'error' };
+        deleteAllDuplicatesBtn.disabled = false;
+        deleteAllDuplicatesBtn.textContent = 'Delete all duplicates';
+        if (r.ok === false) {
+          deleteAllDuplicatesBtn.textContent = 'Delete failed: retry';
+          return;
+        }
+        if (r.stats) renderStats(r.stats);
+        renderDuplicates(r.duplicates);
+      });
     });
   }
 
@@ -179,10 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Manual Sync Repo Button Handler - reconciles against the actual repo tree
-  // (adds/removes/renames included), not just a local-stats refresh.
-  // Kept short and wrap-friendly on purpose - this button has a fixed width
-  // (popup.css:#sync-repo-btn) so it can grow a line taller but never wider.
+  // Manual Sync Repo: reconciles local state against the GitHub repo tree (additions, removals, renames).
   const SYNC_REASON_LABELS = {
     cooldown: (r) => `Wait ${Math.ceil(r.remainingMs / 1000)}s`,
     unchanged: () => '✓ In sync',
@@ -207,7 +242,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const label = (SYNC_REASON_LABELS[r.reason] || SYNC_REASON_LABELS.error)(r);
         syncRepoBtn.innerText = label;
 
-        // Cooldown is informational, not an error state - no extended hold.
+        // Cooldown is informational, not an error state: no extended hold.
         const holdMs = r.reason === 'cooldown' ? 1500 : 2500;
         setTimeout(() => {
           syncRepoBtn.innerText = '↻ Sync';
@@ -254,14 +289,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // -------------------------------------------------------------
-  // Sync Health panel
-  //
-  // Every way a sync can silently abort now writes a reason code to
-  // tufhub_diag, so a failure can be diagnosed from here instead of needing
-  // DevTools open on the TUF+ tab at the moment it happens.
+  // Sync Health panel: displays diagnostics and liveness probes to inspect sync failures without DevTools.
   // -------------------------------------------------------------
-  const TUF_PLUS_URL = /^https:\/\/(?:[a-z0-9-]+\.)*takeuforward\.org\/plus/i;
-
   const healthDot = document.getElementById('health-dot');
   const healthBody = document.getElementById('health-body');
   const healthSummary = document.getElementById('health-summary');
@@ -304,7 +333,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
           const tab = tabs && tabs[0];
-          if (!tab || !TUF_PLUS_URL.test(tab.url || '')) {
+          if (!tab || !TUF_CONTENT_SCRIPT_URL.test(tab.url || '')) {
             return resolve({ state: 'no-tab' });
           }
           chrome.tabs.sendMessage(tab.id, { type: 'TUFHUB_PING' }, (res) => {
@@ -347,7 +376,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const diskJson = await diskRes.json();
         const onDiskVer = diskJson.version || loadedVer;
         if (onDiskVer !== loadedVer) {
-          staleBanner.textContent = `Rebuilt to v${onDiskVer} but v${loadedVer} is running - press Reload at chrome://extensions, then reload your TUF+ tab.`;
+          staleBanner.textContent = `Rebuilt to v${onDiskVer} but v${loadedVer} is running, press Reload at chrome://extensions, then reload your TUF+ tab.`;
           staleBanner.classList.remove('hidden');
           return;
         }
