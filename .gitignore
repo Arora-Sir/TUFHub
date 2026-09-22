@@ -22,6 +22,12 @@ zips/
 TempData/
 graphify-out/
 scratch/
+bugs/
+research/
+
+# Local AI Assistant Config
+.claude/
+CLAUDE.md
 
 # Logs & Debugging Output
 *.log
