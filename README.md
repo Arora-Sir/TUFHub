@@ -61,7 +61,7 @@ Click below to install TUFHub directly into Google Chrome with automatic backgro
 ## 📸 Screenshots & Showcase
 
 <p align="center">
-  <img src="src/assets/readme_screenshots/popup_dashboard.png?v=5" width="900" alt="TUFHub Extension Popup Dashboard" />
+  <img src="src/assets/readme_screenshots/popup_dashboard.png?v=6" width="900" alt="TUFHub Extension Popup Dashboard" />
 </p>
 
 ### 📁 Master Solutions Repository Index
