@@ -21,9 +21,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const statMedium = document.getElementById('stat-medium');
   const statHard = document.getElementById('stat-hard');
 
-  const upiBtn = document.getElementById('upi-btn');
+  const upiBtn = document.getElementById('donate-btn');
   const upiModal = document.getElementById('upi-modal');
   const copyUpiBtn = document.getElementById('copy-upi-btn');
+  const starRepoBtn = document.getElementById('star-repo-btn');
 
   function renderStats(stats) {
     if (!stats) return;
@@ -187,6 +188,55 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Milestone Nudge Banner
+  // NOTE: Evaluated once per popup session rather than subscribing to live chrome.storage.onChanged events.
+  // NOTE: Avoiding live storage subscriptions prevents sudden layout shifts while the user interacts with Sync or Duplicates.
+  // NOTE: tufhub_milestone_last_shown tracks a monotonic watermark representing the highest milestone displayed to the user.
+  // NOTE: Writing the watermark at display time ensures subsequent drops in stats.solved cannot trigger duplicate milestone alerts.
+  // NOTE: A drop in stats.solved, for example from DELETE_ALL_DUPLICATE_FOLDERS or a Sync reconciliation that finds fewer live problems, can never re-arm a milestone the watermark already recorded.
+  // NOTE: The banner text displays the live stats.solved count to maintain visual consistency with the header counter.
+  // NOTE: Dismissing the banner only hides it for the current session without permanently opting out of future milestones.
+  // NOTE: An earlier version set a permanent opt-out flag on dismiss instead, leaving no way back except clearing storage in DevTools; that is why dismiss now only hides the banner.
+  const milestoneBanner = document.getElementById('milestone-banner');
+  const milestoneBannerText = document.getElementById('milestone-banner-text');
+  const milestoneCloseBtn = document.getElementById('milestone-close-btn');
+
+  function computeMilestone(solved) {
+    const n = Number(solved) || 0;
+    return n >= 10 ? Math.floor(n / 10) * 10 : 0;
+  }
+
+  async function checkMilestoneNudge(stats) {
+    if (!milestoneBanner || !milestoneBannerText) return;
+    try {
+      const solved = (stats && stats.solved) || 0;
+      const milestone = computeMilestone(solved);
+      if (!milestone) return;
+
+      const store = await chrome.storage.local.get(['tufhub_milestone_opt_out', 'tufhub_milestone_last_shown', 'tufhub_starred_clicked']);
+      if (store.tufhub_milestone_opt_out) return;
+
+      const lastShown = store.tufhub_milestone_last_shown || 0;
+      if (milestone <= lastShown) return;
+
+      milestoneBannerText.textContent = store.tufhub_starred_clicked
+        ? `🎉 ${solved} problems synced. Always free. The TUF+ link below helps a lot too.`
+        : `🎉 ${solved} problems synced. Always free. A star or the TUF+ link below helps a lot.`;
+      milestoneBanner.classList.remove('hidden');
+
+      // Persisted immediately so this exact milestone watermark never displays a second time.
+      await chrome.storage.local.set({ tufhub_milestone_last_shown: milestone });
+    } catch (e) {
+      milestoneBanner.classList.add('hidden');
+    }
+  }
+
+  if (milestoneCloseBtn) {
+    milestoneCloseBtn.addEventListener('click', () => {
+      milestoneBanner.classList.add('hidden');
+    });
+  }
+
   // Load state
   chrome.storage.local.get(['tufhub_token', 'tufhub_username', 'tufhub_hook', 'stats', 'tufhub_last_reconcile_result'], async (res) => {
     if (res.tufhub_token && res.tufhub_hook) {
@@ -205,17 +255,34 @@ document.addEventListener('DOMContentLoaded', () => {
       renderStats(res.stats);
       renderDuplicates(res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.duplicates);
 
+      let latestStats = res.stats;
       // Auto-sync existing repo stats if 0 solved or missing
       if (!res.stats || !res.stats.solved) {
         const updatedStats = await scanAndSyncRepoStats(res.tufhub_token, res.tufhub_hook);
-        if (updatedStats) renderStats(updatedStats);
+        if (updatedStats) {
+          renderStats(updatedStats);
+          latestStats = updatedStats;
+        }
       }
+
+      checkMilestoneNudge(latestStats);
     } else {
       unauthSection.classList.remove('hidden');
       authSection.classList.add('hidden');
       disconnectBtn.classList.add('hidden');
+      if (milestoneBanner) milestoneBanner.classList.add('hidden');
     }
   });
+
+  // Tracks local click confirmation for the repository star button to avoid redundant prompts in the milestone banner.
+  // Stored locally without remote GitHub API validation to avoid unnecessary network latency during popup initialization.
+  if (starRepoBtn) {
+    starRepoBtn.addEventListener('click', () => {
+      try {
+        chrome.storage.local.set({ tufhub_starred_clicked: true });
+      } catch (e) {}
+    });
+  }
 
   // Manual Sync Repo: reconciles local state against the GitHub repo tree (additions, removals, renames).
   const SYNC_REASON_LABELS = {
@@ -267,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Disconnect Button
   disconnectBtn.addEventListener('click', () => {
     if (confirm('Are you sure you want to disconnect TUFHub from GitHub?')) {
-      chrome.storage.local.remove(['tufhub_token', 'tufhub_username', 'tufhub_hook', 'mode_type', 'stats'], () => {
+      chrome.storage.local.remove(['tufhub_token', 'tufhub_username', 'tufhub_hook', 'mode_type', 'stats', 'tufhub_milestone_last_shown'], () => {
         window.location.reload();
       });
     }

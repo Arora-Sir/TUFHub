@@ -42,6 +42,12 @@ A sync writes through GitHub's Git Data API directly (blob -> tree -> commit -> 
 
 Duplicate detection groups repo folders by slug (the last path segment). A problem that used to sync to one folder and now syncs to a different one (after a routing fix, for example) leaves its old copy behind as an orphan, surfaced to the user as a duplicate rather than silently losing one copy.
 
+## Milestone nudge: a monotonic watermark, not a reactive listener
+
+The popup's Support section includes a small banner marking every 10 problems solved, read once from `stats.solved` when the popup opens rather than from a live `chrome.storage.onChanged` subscription: a milestone crossed by a background sync while the popup is already open simply surfaces the next time it opens, trading a session of delay for zero risk of the banner appearing mid-click and shifting the layout under the user's cursor.
+
+`tufhub_milestone_last_shown` is a watermark, not a boolean flag: it stores the highest milestone already shown and only ever moves forward, written at show time rather than on dismiss. This makes the feature safe against `stats.solved` decreasing, whether from a duplicate-folder cleanup or a Sync reconciliation that finds fewer live problems than the local cache expected: a drop can make a future milestone look not-yet-crossed again, but it can never re-arm one that already fired, since the watermark itself never moves backwards. The close control is a plain dismiss with no separate opt-out flag, on purpose: an earlier version let a single click silently disable the feature forever, discoverable only by clearing extension storage by hand.
+
 ## File map
 
 - `src/scripts/tuf/interceptor.js`: MAIN world. Network interception, Monaco reads, verdict detection (primary channel).
@@ -52,4 +58,4 @@ Duplicate detection groups repo folders by slug (the last path segment). A probl
 - `src/scripts/tuf/stats.js`: local stats cache, the two reconcile functions, code-change hashing for dedup.
 - `src/scripts/tuf/uploader.js`: the actual GitHub Git Data API calls (`commitTreeEntries`, `deleteFiles`, `uploadToGitHub`).
 - `src/scripts/background.js`: service worker. The serialized write queue, message routing between popup/content script and the sync pipeline, install/update re-injection.
-- `src/scripts/popup.js` / `src/popup.html`: the toolbar popup UI: auth, stats, Sync button, duplicate-folder panel.
+- `src/scripts/popup.js` / `src/popup.html`: the toolbar popup UI: auth, stats, Sync button, duplicate-folder panel, Sync Health diagnostics, and the Support section with its milestone nudge banner.

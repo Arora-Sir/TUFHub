@@ -30,28 +30,11 @@ html, body {
   font-size: 15px;
 }
 
-/* A max-height still lets the real rendered height vary between states, and
-   that resize is what makes Chrome/Brave reposition the popup to keep it
-   on-screen - the "jumping" bug. An unconditional fixed height means the
-   frame is measured once at first paint and never has a reason to resize
-   again, regardless of what's expanded/collapsed inside - stable no matter
-   what number is picked, only how much slack there is depends on that.
-   Measured against the real, complete stylesheet served over local HTTP
-   (not a hand-copied subset - that undercounted earlier): baseline (nothing
-   expanded, the default view essentially every popup-open sees) is 506px.
-   512px = that baseline + a thin buffer for minor variance (longer GitHub
-   usernames, different stat digit counts) - trimmed down from an earlier,
-   more generous buffer per user feedback that the bottom padding still read
-   as too much. Sync Health is collapsed by default and only expands on a
-   deliberate click - same "active, temporary state" category as Duplicates
-   below - so it's sized for the default view, not for "Sync Health open too"
-   (542px): opening it needs a small scroll to see its full detail section,
-   an acceptable trade for near-zero wasted space in the state everyone sees
-   by default. Duplicates open with real entries pushes further still
-   (695-758px measured) and needs real internal scroll - an active, temporary
-   state you're mid-resolving, not the default view, so scrolling there is
-   normal, expected UX, not a regression of the original "popup jumps
-   position" bug. */
+/* An unconditional fixed height ensures the popup frame is measured once at first paint and never resizes dynamically.
+   Dynamic resizing causes Chromium browsers to reposition the popup frame on screen, creating noticeable UI jumping.
+   The 512px height provides a baseline (506px measured default view) plus a minimal buffer for variable username and counter lengths.
+   That buffer was trimmed down from an earlier, more generous value after user feedback that the extra bottom padding still looked excessive.
+   Optional panels like Sync Health and Duplicates are temporary interaction states that scroll internally without repositioning the popup. */
 html {
   height: 512px;
   overflow-y: auto;
@@ -228,12 +211,8 @@ html {
   border: 1px solid var(--card-border);
 }
 
-/* Sync button shows dynamic status text ("Wait 45s", "Rate limited", etc.) of
-   varying length. Without flex-shrink/min-width overrides, a flex item's
-   default min-width is its content's unbroken width, which let a long label
-   force this whole row (and the card around it) to stretch wider than the
-   popup. Fixed width + wrapping keeps the row stable regardless of message
-   length - it grows at most a line taller, never wider. */
+/* Fixed width and text wrapping prevent dynamic status labels ("Wait 45s", "Rate limited") from expanding the flex row beyond popup bounds.
+   Without explicit min-width and width constraints, flex items default to unbroken content width and force horizontal stretching. */
 #sync-repo-btn {
   flex: 0 0 auto;
   width: 108px;
@@ -302,6 +281,43 @@ html {
   border-color: rgba(249, 115, 22, 0.55);
 }
 
+.milestone-banner {
+  position: relative;
+  padding: 4px 26px 10px 0;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.milestone-banner-text {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #ffedd5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.milestone-close-btn {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  background: transparent;
+  border: none;
+  padding: 2px 6px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: var(--transition-spring);
+}
+
+.milestone-close-btn:hover {
+  color: var(--text-main);
+  opacity: 1;
+}
+
 .upi-box {
   margin-top: 12px;
   background: rgba(0, 0, 0, 0.5);
@@ -309,6 +325,26 @@ html {
   border-radius: var(--radius-lg);
   border: 1px solid var(--card-border);
   text-align: center;
+}
+
+.upi-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.upi-divider::before,
+.upi-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--card-border);
 }
 
 .upi-qr-img {

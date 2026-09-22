@@ -100,6 +100,12 @@
         </div>
       </details>
 
+      <!-- Milestone Nudge Banner -->
+      <div id="milestone-banner" class="milestone-banner hidden" role="status">
+        <p id="milestone-banner-text" class="milestone-banner-text"></p>
+        <button id="milestone-close-btn" type="button" class="milestone-close-btn" aria-label="Dismiss milestone banner">&times;</button>
+      </div>
+
       <!-- Support & Developer Section -->
       <section class="support-section">
         <p class="support-title">Support TUFHub & Practice</p>
@@ -110,15 +116,19 @@
           <a id="star-repo-btn" href="https://github.com/Arora-Sir/TUFHub" target="_blank" rel="noopener noreferrer" class="network-btn support-chip" title="Give TUFHub a star on GitHub">
             ⭐ Star Repo
           </a>
-          <a id="paypal-btn" href="https://paypal.me/arorasir" target="_blank" rel="noopener noreferrer" class="network-btn support-chip">
-            ☕ PayPal
-          </a>
-          <button id="upi-btn" class="network-btn support-chip">
-            📱 UPI QR
+          <button id="donate-btn" class="network-btn support-chip">
+            💰 Donate
           </button>
+          <a id="rate-us-btn" href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge/reviews" target="_blank" rel="noopener noreferrer" class="network-btn support-chip" title="Rate TUFHub on the Chrome Web Store">
+            📝 Rate Us
+          </a>
         </div>
 
         <div id="upi-modal" class="upi-box hidden">
+          <a href="https://paypal.me/arorasir" target="_blank" rel="noopener noreferrer" class="network-btn support-chip highlight-chip" style="width: 100%; box-sizing: border-box;">
+            ☕ Pay via PayPal
+          </a>
+          <p class="upi-divider">or scan to pay via UPI</p>
           <img src="assets/upi_qr.png" alt="UPI QR Code" class="upi-qr-img" onerror="this.style.display='none'">
           <div class="upi-id-copy">
             <code>mohit1998arora@yescred</code>

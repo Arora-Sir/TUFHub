@@ -19,7 +19,7 @@
 
 <p align="center">
   <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" rel="noopener noreferrer">
-    <img src="https://img.shields.io/badge/Chrome_Web_Store-v2.0.0-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-v2.1.0-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
   </a>
   <a href="https://github.com/Arora-Sir/TUFHub/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
@@ -92,6 +92,7 @@ Commits code solutions with clean folder hierarchy, language extensions, and for
 - **Problem Statement README**: Generates per-problem `README.md` with difficulty and complexity analysis.
 - **Master Repository Index**: Maintains a master `README.md` index table sorted by category and difficulty.
 - **Live Extension Popup**: Tracks Solved, Easy, Medium, Hard counts with a 1-click **Sync** button that reconciles against the actual repository tree. If you delete a problem folder on GitHub, Sync removes it from the master index too, not just from your local view.
+- **Milestone Nudges**: A small, dismissible banner marks every 10 problems solved and points to the Support section below. TUFHub stays 100% free either way; it never blocks or gates any feature.
 - **Sync Health Panel**: Real-time tab hook status, last successful commit link, and a 50-event diagnostic log in the popup.
 - **Conflict-Safe Commits**: Sequential queue prevents Git 409 commit conflicts.
 - **Self-Healing Sync Queue**: Queues syncs when offline, or when GitHub itself briefly lags right after a write, and flushes automatically, with no resubmitting and no manual retry.
