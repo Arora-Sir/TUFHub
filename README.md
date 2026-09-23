@@ -51,7 +51,7 @@ Click below to install TUFHub directly into Google Chrome with automatic backgro
 1. Clone or download this repository:
    ```bash
    git clone https://github.com/Arora-Sir/TUFHub.git
-   cd TUFHub && npm install && npm run build
+   cd TUFHub && corepack enable && pnpm install && pnpm run build
    ```
 2. Open Chrome → navigate to `chrome://extensions` → enable **Developer mode**.
 3. Click **Load unpacked** and select the generated `dist/` directory.
@@ -160,9 +160,10 @@ Go to [TakeUForward (TUF+)](https://takeuforward.org/pricing?affiliate=arorasir)
 
 ### Build Commands
 ```bash
-npm install     # Install dependencies
-npm run build   # Production Webpack 5 build (outputs to dist/)
-npm run dev     # Development build with watch mode
+corepack enable  # Provides the pinned pnpm version from package.json
+pnpm install     # Install dependencies
+pnpm run build   # Production Webpack 5 build (outputs to dist/)
+pnpm run watch   # Development build with watch mode
 ```
 
 ### Directory Structure
