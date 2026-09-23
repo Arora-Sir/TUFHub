@@ -58,6 +58,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Names the solution files that exist only in this folder, so a duplicate cleanup never drops a solution the other copies lack without saying so.
+  function filesOnlyIn(folder, otherFolders) {
+    const nameOf = path => path.split('/').pop();
+    const elsewhere = new Set(otherFolders.flatMap(f => (f.files || []).map(nameOf)));
+    return (folder.files || []).map(nameOf).filter(name => name !== 'README.md' && !elsewhere.has(name));
+  }
+
   function renderDuplicates(duplicates) {
     if (!duplicatesSection || !duplicatesBody) return;
 
@@ -105,7 +112,9 @@ document.addEventListener('DOMContentLoaded', () => {
         deleteBtn.style.cssText = 'flex: 0 0 auto; padding: 2px 8px; font-size: 10px;';
         deleteBtn.textContent = 'Delete';
         deleteBtn.addEventListener('click', () => {
-          const ok = confirm(`Delete "${folderPath}" and all its files from ${repoHook || 'your repo'}?\n\nThis cannot be undone.`);
+          const onlyHere = filesOnlyIn({ files }, sortedFolders.filter(f => f.folderPath !== folderPath));
+          const uniqueNote = onlyHere.length ? `\n\nOnly in this folder (not in the other copies): ${onlyHere.join(', ')}` : '';
+          const ok = confirm(`Delete "${folderPath}" and all its files from ${repoHook || 'your repo'}?${uniqueNote}\n\nThis cannot be undone.`);
           if (!ok) return;
 
           deleteBtn.disabled = true;
@@ -162,8 +171,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (toDelete.length === 0) return;
 
       const confirmLines = duplicates.flatMap(({ slug, folders }) => {
-        const stale = sortNewestFirst(folders).slice(1);
-        return stale.length ? [slug, ...stale.map(f => `  - ${f.folderPath}`)] : [];
+        const sorted = sortNewestFirst(folders);
+        const stale = sorted.slice(1);
+        return stale.length ? [slug, ...stale.map(f => {
+          const onlyHere = filesOnlyIn(f, [sorted[0]]);
+          return `  - ${f.folderPath}${onlyHere.length ? ` (only here: ${onlyHere.join(', ')})` : ''}`;
+        })] : [];
       });
       const ok = confirm(
         `Delete ${toDelete.length} duplicate folder${toDelete.length > 1 ? 's' : ''} from ${repoHook || 'your repo'} in one commit? The newest (★) copy of each is kept.\n\nThis cannot be undone.\n\n${confirmLines.join('\n')}`

@@ -21,26 +21,35 @@ export function isExtensionContextAlive() {
   }
 }
 
+// NOTE: Each append is a read, push, write cycle on one storage key, so two entries written in the same moment would each read the old log and one would overwrite the other.
+// NOTE: Chaining appends within this script context keeps every entry, for example ARMED and SUBMIT_REQUEST, which the interceptor emits milliseconds apart.
+let diagChain = Promise.resolve();
+
 /**
  * Appends an entry to a bounded diagnostic ring buffer in chrome.storage.local for popup inspection.
  * The background worker passes the submission's own url, since its location is the extension script rather than a TUF page.
  */
-export async function pushDiag(stage, reasonCode = '', detail = '', url = '') {
-  if (!isExtensionContextAlive()) return;
-  try {
-    const data = await safeGetStorage('tufhub_diag');
-    const log = Array.isArray(data.tufhub_diag) ? data.tufhub_diag : [];
-    const pageUrl = url || ((typeof location !== 'undefined' && location.href) ? location.href : '');
-    log.push({
-      ts: Date.now(),
-      stage,
-      reasonCode,
-      detail: typeof detail === 'string' ? detail.slice(0, 300) : String(detail).slice(0, 300),
-      url: pageUrl.slice(0, 200)
-    });
-    while (log.length > DIAG_LIMIT) log.shift();
-    await safeSetStorage({ tufhub_diag: log });
-  } catch (e) {}
+export function pushDiag(stage, reasonCode = '', detail = '', url = '') {
+  if (!isExtensionContextAlive()) return Promise.resolve();
+  const entry = {
+    ts: Date.now(),
+    stage,
+    reasonCode,
+    detail: typeof detail === 'string' ? detail.slice(0, 300) : String(detail).slice(0, 300),
+    url: (url || ((typeof location !== 'undefined' && location.href) ? location.href : '')).slice(0, 200)
+  };
+  const write = async () => {
+    try {
+      const data = await safeGetStorage('tufhub_diag');
+      const log = Array.isArray(data.tufhub_diag) ? data.tufhub_diag : [];
+      log.push(entry);
+      while (log.length > DIAG_LIMIT) log.shift();
+      await safeSetStorage({ tufhub_diag: log });
+    } catch (e) {}
+  };
+  const result = diagChain.then(write, write);
+  diagChain = result;
+  return result;
 }
 
 export async function getDiag() {
@@ -497,6 +506,15 @@ function labelFromFileName(fileName) {
   return base;
 }
 
+/**
+ * Maps a problem folder name to the key its duplicates share, covering the names older versions produced for the same problem.
+ * NOTE: Title-based folder names from v1.x carry a 4-digit number prefix ("0047-profitable-customers-in-2021"), and some URL slugs differ from them only by a trailing hyphen.
+ * NOTE: Only an exact 4-digit prefix is stripped, because addLeadingZeros() only ever produced that form, so a real TUF slug such as "4-sum" keeps its number.
+ */
+export function duplicateKey(slug) {
+  return String(slug || '').toLowerCase().replace(/^\d{4}-/, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
+}
+
 export async function reconcileRepoFromTree(token, hook, { skipCooldown = false } = {}) {
   if (!token || !hook) return { ok: false, reason: 'error', message: 'Not connected.' };
 
@@ -567,7 +585,7 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
   const reconciledProblems = {};
   const reconciledShas = {};
   const liveSlugs = new Set();
-  const slugToFolders = new Map(); // slug -> [folderPath, ...]: tracks multiple folders per slug to surface duplicate folder warnings.
+  const slugToFolders = new Map(); // duplicateKey(slug) -> [folderPath, ...]: tracks multiple folders per problem to surface duplicate folder warnings.
 
   // Backfill updatedAt timestamps from GitHub commit history rather than trusting local storage cache.
   // Self-heals local storage timestamps against previous reconcile stomping bugs.
@@ -576,8 +594,9 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
     const parts = folderPath.split('/');
     const slug = parts[parts.length - 1];
     liveSlugs.add(slug);
-    if (!slugToFolders.has(slug)) slugToFolders.set(slug, []);
-    slugToFolders.get(slug).push(folderPath);
+    const key = duplicateKey(slug);
+    if (!slugToFolders.has(key)) slugToFolders.set(key, []);
+    slugToFolders.get(key).push(folderPath);
 
     const files = {};
     const shas = {};
@@ -615,16 +634,18 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
   }));
 
   const duplicateSlugEntries = Array.from(slugToFolders.entries()).filter(([, folderPaths]) => folderPaths.length > 1);
-  const duplicates = await Promise.all(duplicateSlugEntries.map(async ([slug, folderPaths]) => ({
-    slug,
-    folders: await Promise.all(folderPaths.map(async folderPath => {
+  const duplicates = await Promise.all(duplicateSlugEntries.map(async ([, folderPaths]) => {
+    const groupFolders = await Promise.all(folderPaths.map(async folderPath => {
       const entry = folders.get(folderPath);
       const paths = entry.files.map(f => `${folderPath}/${f.name}`);
       if (entry.hasReadme) paths.push(`${folderPath}/README.md`);
       const lastModified = await fetchLastCommitDate(token, hook, folderPath);
       return { folderPath, files: paths, lastModified };
-    }))
-  })));
+    }));
+    // The popup labels a group by its newest folder's own name, since grouped folders can carry different names.
+    const newest = groupFolders.reduce((best, f) => ((f.lastModified || 0) > (best.lastModified || 0) ? f : best), groupFolders[0]);
+    return { slug: newest.folderPath.split('/').pop(), folders: groupFolders };
+  }));
 
   const solvedSlugs = Object.keys(reconciledProblems);
   const counts = { solved: solvedSlugs.length, easy: 0, medium: 0, hard: 0 };

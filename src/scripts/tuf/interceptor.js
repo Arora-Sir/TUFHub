@@ -913,7 +913,9 @@
       !urlStr.includes('/submission/result')
     ) {
       // Logs near-miss candidate endpoints to diagnostics so API changes remain visible.
-      if (urlStr.includes('judge') || urlStr.includes('verdict') || urlStr.includes('submission')) {
+      // Known routine traffic (credit balance, Run-button polls, AI review) is skipped because it fills the 50-entry log after every submission.
+      const routine = urlStr.includes('/judge/credits') || urlStr.includes('/judge/check-run') || urlStr.includes('/ai/submission-review');
+      if (!routine && (urlStr.includes('judge') || urlStr.includes('verdict') || urlStr.includes('submission'))) {
         diag('UNMATCHED_ENDPOINT', 'ENDPOINT_NOT_IN_ALLOWLIST', `${method} ${urlStr}`);
       }
       return;
