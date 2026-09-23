@@ -93,10 +93,38 @@ function convertTufHtmlToMarkdown(html) {
 
     let body = doc.body;
 
+    // NOTE: Real HTML tables (TUF's SQL schema tables) and hand-typed ASCII example tables inside <pre> both need their exact whitespace preserved.
+    // NOTE: The prose regex pipeline below collapses runs of spaces to one, which would destroy a <pre> block's column alignment and a table's cell boundaries alike.
+    // NOTE: Both are swapped here for a placeholder token the pipeline cannot touch, then restored verbatim as the final step, after every other transformation has run.
+    const protectedBlocks = [];
+    const protect = (markdownText) => {
+      const token = `ZZTUFHUBBLOCKZZ${protectedBlocks.length}ZZ`;
+      protectedBlocks.push(markdownText);
+      const marker = doc.createElement('p');
+      marker.textContent = token;
+      return marker;
+    };
+
+    body.querySelectorAll('table').forEach(table => {
+      const rows = Array.from(table.querySelectorAll('tr')).map(tr =>
+        Array.from(tr.querySelectorAll('th, td')).map(cell => (cell.textContent || '').replace(/\s+/g, ' ').trim().replace(/\|/g, '\\|'))
+      );
+      if (rows.length === 0) return;
+      const colCount = Math.max(...rows.map(r => r.length));
+      const toLine = (row) => `| ${Array.from({ length: colCount }, (_, i) => row[i] || '').join(' | ')} |`;
+      const lines = [toLine(rows[0]), toLine(Array(colCount).fill('---')), ...rows.slice(1).map(toLine)];
+      (table.closest('figure') || table).replaceWith(protect(lines.join('\n')));
+    });
+
+    body.querySelectorAll('pre').forEach(pre => {
+      pre.replaceWith(protect('```\n' + pre.textContent.replace(/\n+$/, '') + '\n```'));
+    });
+
     // NOTE: Converts Examples and Constraints sections into formatted Markdown blocks.
     // Matches both legacy .tuf-vstack and semantic <section> containers.
     body.querySelectorAll('.tuf-vstack, section').forEach(vstack => {
-      const headerElem = vstack.querySelector('.tuf-text-14, h3, h4, .tuf-header');
+      // NOTE: TUF's own section heading level has drifted before (BUG-003) and has drifted again since: today's live pages use <h2 class="sectionTitle">, matched here alongside the older tags this selector already handled.
+      const headerElem = vstack.querySelector('.tuf-text-14, h2, h3, h4, .tuf-header');
       const rawHeader = headerElem ? (headerElem.innerText || headerElem.textContent).trim() : '';
       const headerText = rawHeader.replace(/<[^>]*>/g, '');
 
@@ -105,6 +133,13 @@ function convertTufHtmlToMarkdown(html) {
         const exBox = vstack.querySelector('.tuf-example') ||
           Array.from(vstack.children).find(c => c !== headerElem);
         if (exBox) {
+          // TUF's own source repeats the heading as a paragraph inside the section body (e.g. "Example 1:" again right under the "Example 1:" heading, past an empty decorative divider), so drop it to avoid printing it twice.
+          const normalize = (s) => s.trim().replace(/:$/, '').toLowerCase();
+          const firstP = exBox.querySelector('p');
+          if (firstP && normalize(firstP.textContent) === normalize(headerText)) {
+            firstP.remove();
+          }
+
           const exHtml = exBox.innerHTML
             .replace(/<strong>Input\s*:?<\/strong>\s*:?/gi, '\n\n**Input:** ')
             .replace(/<strong>Output\s*:?<\/strong>\s*:?/gi, '\n\n**Output:** ')
@@ -175,6 +210,11 @@ function convertTufHtmlToMarkdown(html) {
 
     // Clean up double newlines
     markdown = markdown.replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
+
+    // Restored last, once nothing further will touch their internal whitespace.
+    protectedBlocks.forEach((block, i) => {
+      markdown = markdown.replace(`ZZTUFHUBBLOCKZZ${i}ZZ`, () => block);
+    });
 
     return markdown.length > 20 ? markdown : 'Problem description available on TakeUForward (TUF+).';
   } catch (e) {
