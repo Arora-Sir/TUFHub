@@ -62,6 +62,12 @@
         </div>
       </div>
 
+      <!-- Repair Feature Announcement Banner (one-time; dismisses itself on close or on the next Sync click) -->
+      <div id="repair-announce-banner" class="milestone-banner hidden" role="status" style="margin-top: 10px;">
+        <p id="repair-announce-banner-text" class="milestone-banner-text">New: TUFHub can now detect and fix broken links or old formatting left over from past syncs. Click Sync to check your repo.</p>
+        <button id="repair-announce-close-btn" type="button" class="milestone-close-btn" aria-label="Dismiss">&times;</button>
+      </div>
+
       <!-- Duplicate Problem Folders Warning -->
       <details id="duplicates-section" class="card hidden" style="margin-top: 10px;">
         <summary style="cursor: pointer; font-weight: 600; font-size: 12px; display: flex; align-items: center; gap: 7px; list-style: none;">

@@ -19,6 +19,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const devProfileLink = document.getElementById('dev-profile-link');
   const repoLink = document.getElementById('repo-link');
   const syncRepoBtn = document.getElementById('sync-repo-btn');
+  const repairAnnounceBanner = document.getElementById('repair-announce-banner');
+  const repairAnnounceCloseBtn = document.getElementById('repair-announce-close-btn');
 
   const statSolved = document.getElementById('stat-solved');
   const statEasy = document.getElementById('stat-easy');
@@ -381,6 +383,31 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // One-time announcement for the repair feature: a plain boolean, not a watermark like the milestone banner, since there is only one thing to ever announce here, not a recurring series.
+  // NOTE: Retires itself two ways: an explicit dismiss, or simply clicking Sync, since that is the exact action the banner exists to prompt and repeating it after the user has already taken it would just be noise.
+  async function checkRepairAnnouncementBanner() {
+    if (!repairAnnounceBanner) return;
+    try {
+      const store = await chrome.storage.local.get(['tufhub_repair_announce_dismissed']);
+      if (store.tufhub_repair_announce_dismissed) return;
+      repairAnnounceBanner.classList.remove('hidden');
+    } catch (e) {
+      repairAnnounceBanner.classList.add('hidden');
+    }
+  }
+
+  function dismissRepairAnnouncementBanner() {
+    if (!repairAnnounceBanner) return;
+    repairAnnounceBanner.classList.add('hidden');
+    try {
+      chrome.storage.local.set({ tufhub_repair_announce_dismissed: true });
+    } catch (e) {}
+  }
+
+  if (repairAnnounceCloseBtn) {
+    repairAnnounceCloseBtn.addEventListener('click', dismissRepairAnnouncementBanner);
+  }
+
   // Load state
   chrome.storage.local.get(['tufhub_token', 'tufhub_username', 'tufhub_hook', 'stats', 'tufhub_last_reconcile_result'], async (res) => {
     if (res.tufhub_token && res.tufhub_hook) {
@@ -411,11 +438,13 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       checkMilestoneNudge(latestStats);
+      checkRepairAnnouncementBanner();
     } else {
       unauthSection.classList.remove('hidden');
       authSection.classList.add('hidden');
       disconnectBtn.classList.add('hidden');
       if (milestoneBanner) milestoneBanner.classList.add('hidden');
+      if (repairAnnounceBanner) repairAnnounceBanner.classList.add('hidden');
     }
   });
 
@@ -445,6 +474,8 @@ document.addEventListener('DOMContentLoaded', () => {
     syncRepoBtn.addEventListener('click', () => {
       syncRepoBtn.innerText = '⏳';
       syncRepoBtn.disabled = true;
+      // Clicking Sync is the exact action the banner exists to prompt, so it retires here regardless of what the sync itself returns, even a cooldown response still means the click happened.
+      dismissRepairAnnouncementBanner();
 
       chrome.runtime.sendMessage({ type: 'RECONCILE_REPO' }, (result) => {
         const r = result || { reason: 'error' };
