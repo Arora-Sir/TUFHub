@@ -3,7 +3,7 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-import { decode, normalizeReadmeForCompare, classifyDifficulty } from '../util.js';
+import { decode, normalizeReadmeForCompare, classifyDifficulty, hasToken } from '../util.js';
 
 /**
  * Builds root README file payload.
@@ -176,7 +176,9 @@ function resolveTopic(p) {
 
   if (!topicName || topicName === catName || topicName === 'General' || (slug && topicName.toLowerCase() === slug.toLowerCase())) {
     const titleLower = ((p.title || '') + ' ' + (p.folderPath || '') + ' ' + (p.mainTopic || '')).toLowerCase();
-    if (titleLower.includes('linked') || titleLower.includes('ll')) topicName = 'Linked-List';
+    // Short keyword abbreviations use hasToken with a left word-boundary to prevent false-positive substring matches.
+    // NOTE: Substring matching previously misclassified problems like "sub-BST-rings" as bst and "a-LL-three-characters" as ll.
+    if (titleLower.includes('linked') || hasToken(titleLower, 'll')) topicName = 'Linked-List';
     else if (
       titleLower.includes('recursion') || titleLower.includes('combination') ||
       titleLower.includes('subset') || titleLower.includes('permutation') ||
@@ -184,12 +186,12 @@ function resolveTopic(p) {
     ) topicName = 'Recursion';
     else if (titleLower.includes('backtrack') || titleLower.includes('n-queen') || titleLower.includes('sudoku')) topicName = 'Backtracking';
     else if (titleLower.includes('search') || titleLower.includes('binary')) topicName = 'Binary-Search';
-    else if (titleLower.includes('tree') || titleLower.includes('bst')) topicName = 'Trees';
-    else if (titleLower.includes('graph') || titleLower.includes('bfs') || titleLower.includes('dfs')) topicName = 'Graphs';
-    else if (titleLower.includes('dp') || titleLower.includes('dynamic') || titleLower.includes('knapsack')) topicName = 'Dynamic-Programming';
+    else if (titleLower.includes('tree') || hasToken(titleLower, 'bst')) topicName = 'Trees';
+    else if (titleLower.includes('graph') || hasToken(titleLower, 'bfs') || hasToken(titleLower, 'dfs')) topicName = 'Graphs';
+    else if (hasToken(titleLower, 'dp') || titleLower.includes('dynamic') || titleLower.includes('knapsack')) topicName = 'Dynamic-Programming';
     else if (titleLower.includes('string') || titleLower.includes('anagram')) topicName = 'Strings';
     else if (titleLower.includes('stack') || titleLower.includes('queue')) topicName = 'Stack-Queue';
-    else if (titleLower.includes('bit') || titleLower.includes('xor')) topicName = 'Bit-Manipulation';
+    else if (hasToken(titleLower, 'bit') || hasToken(titleLower, 'xor')) topicName = 'Bit-Manipulation';
     else if (titleLower.includes('greedy')) topicName = 'Greedy';
     else if (titleLower.includes('heap')) topicName = 'Heaps';
     else if (titleLower.includes('window')) topicName = 'Sliding-Window';

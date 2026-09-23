@@ -14,7 +14,7 @@
  * - /prep-hub/... (sheet landing and overview pages)
  */
 
-import { sanitizePathSegment } from '../util.js';
+import { sanitizePathSegment, hasToken, hasExactToken } from '../util.js';
 
 // Maps syllabus sidebar topic labels to canonical folder names for DSA problems.
 // NOTE: Sidebar auto-highlights active category and sub-category paths on page load.
@@ -65,6 +65,14 @@ function canonicalizeTopicLabel(label) {
   if (!label) return '';
   const key = label.toLowerCase().trim();
   return SIDEBAR_TOPIC_MAP[key] || label;
+}
+
+// Resolves ground-truth topic from the cached syllabus API response over DOM scraping or keyword heuristics.
+// Topic strings pass through SIDEBAR_TOPIC_MAP to keep DSA directory names consistent.
+function authoritativeTopic(data) {
+  const raw = data && data.syllabusMainTopic ? String(data.syllabusMainTopic).trim() : '';
+  if (!raw) return '';
+  return canonicalizeTopicLabel(raw);
 }
 
 // Scrapes expanded accordion headers (aria-expanded="true") within SyllabusSidebarContent.
@@ -132,7 +140,7 @@ function dsaKeywordFallback(pathname, searchParams, data = {}) {
   );
   if (isBacktracking) return 'Backtracking';
 
-  if (titleOrUrl.includes('linked-list') || titleOrUrl.includes('linkedlist') || titleOrUrl.includes('ll') || titleOrUrl.includes('reverse-a-list')) {
+  if (titleOrUrl.includes('linked-list') || titleOrUrl.includes('linkedlist') || hasToken(titleOrUrl, 'll') || titleOrUrl.includes('reverse-a-list')) {
     return 'Linked-List';
   }
   if (titleOrUrl.includes('binary-search') || titleOrUrl.includes('search-in-sorted') || titleOrUrl.includes('search-insert')) {
@@ -150,21 +158,21 @@ function dsaKeywordFallback(pathname, searchParams, data = {}) {
     return 'Recursion';
   }
   if (
-    titleOrUrl.includes('tree') || titleOrUrl.includes('bst') ||
+    titleOrUrl.includes('tree') || hasToken(titleOrUrl, 'bst') ||
     titleOrUrl.includes('inorder') || titleOrUrl.includes('preorder') || titleOrUrl.includes('postorder') ||
     titleOrUrl.includes('level-order') || titleOrUrl.includes('zigzag') || titleOrUrl.includes('boundary') ||
     titleOrUrl.includes('vertical-order') || titleOrUrl.includes('top-view') || titleOrUrl.includes('bottom-view') ||
-    titleOrUrl.includes('diameter') || titleOrUrl.includes('lca') || titleOrUrl.includes('symmetric') ||
+    titleOrUrl.includes('diameter') || hasToken(titleOrUrl, 'lca') || titleOrUrl.includes('symmetric') ||
     titleOrUrl.includes('balanced-tree') || titleOrUrl.includes('maximum-depth') || titleOrUrl.includes('minimum-depth') ||
     titleOrUrl.includes('flatten') || titleOrUrl.includes('invert') || titleOrUrl.includes('path-sum') ||
     titleOrUrl.includes('root-to-node') || titleOrUrl.includes('serialize')
   ) {
     return 'Trees';
   }
-  if (titleOrUrl.includes('graph') || titleOrUrl.includes('bfs') || titleOrUrl.includes('dfs') || titleOrUrl.includes('dijkstra') || titleOrUrl.includes('topological')) {
+  if (titleOrUrl.includes('graph') || hasToken(titleOrUrl, 'bfs') || hasToken(titleOrUrl, 'dfs') || titleOrUrl.includes('dijkstra') || titleOrUrl.includes('topological')) {
     return 'Graphs';
   }
-  if (titleOrUrl.includes('dp') || titleOrUrl.includes('dynamic-programming') || titleOrUrl.includes('knapsack') || titleOrUrl.includes('lis') || titleOrUrl.includes('partition-equal')) {
+  if (hasToken(titleOrUrl, 'dp') || titleOrUrl.includes('dynamic-programming') || titleOrUrl.includes('knapsack') || hasExactToken(titleOrUrl, 'lis') || titleOrUrl.includes('partition-equal')) {
     return 'Dynamic-Programming';
   }
   if (titleOrUrl.includes('string') || titleOrUrl.includes('anagram') || titleOrUrl.includes('palindrome')) {
@@ -173,7 +181,7 @@ function dsaKeywordFallback(pathname, searchParams, data = {}) {
   if (titleOrUrl.includes('stack') || titleOrUrl.includes('queue') || titleOrUrl.includes('lru-cache') || titleOrUrl.includes('lfu-cache')) {
     return 'Stack-Queue';
   }
-  if (titleOrUrl.includes('bit') || titleOrUrl.includes('xor') || titleOrUrl.includes('two-odd') || titleOrUrl.includes('single-number')) {
+  if (hasToken(titleOrUrl, 'bit') || hasToken(titleOrUrl, 'xor') || titleOrUrl.includes('two-odd') || titleOrUrl.includes('single-number')) {
     return 'Bit-Manipulation';
   }
   if (titleOrUrl.includes('greedy') || titleOrUrl.includes('n-meetings') || titleOrUrl.includes('fractional-knapsack')) {
@@ -284,9 +292,9 @@ export function resolveHierarchy(data = {}) {
   // SQL problems follow a flat hierarchy: SQL/<mainTopic>/<slug> without nested subtopics.
   // -------------------------------------------------------------
   if (category === 'SQL') {
-    let mainTopic = resolveTopicForCategory('SQL', pathname, searchParams, data);
+    let mainTopic = authoritativeTopic(data) || resolveTopicForCategory('SQL', pathname, searchParams, data);
 
-    // Fallback keyword classifier for SQL problems when query parameters and DOM lack specific topics.
+    // Fallback keyword classifier for SQL problems when the syllabus map, query parameters, and DOM all lack a topic.
     if (mainTopic === 'General') {
       if (pathname.includes('data-engineering')) {
         mainTopic = 'Data-Engineering';
@@ -318,8 +326,9 @@ export function resolveHierarchy(data = {}) {
   // -------------------------------------------------------------
   // DSA, Design, and generic subjects share the canonical <Category>/<mainTopic> folder hierarchy.
   // -------------------------------------------------------------
-  const mainTopic = resolveTopicForCategory(category, pathname, searchParams, data);
-  const subTopic = canonicalizeTopicLabel(extractActiveSidebarTopic().subLabel) || extractSubTopicFromDOM() || 'General';
+  const mainTopic = authoritativeTopic(data) || resolveTopicForCategory(category, pathname, searchParams, data);
+  const authSubTopic = data && data.syllabusSubTopic ? canonicalizeTopicLabel(String(data.syllabusSubTopic).trim()) : '';
+  const subTopic = authSubTopic || canonicalizeTopicLabel(extractActiveSidebarTopic().subLabel) || extractSubTopicFromDOM() || 'General';
 
   const cleanMain = sanitizePathSegment(mainTopic);
   const cleanSub = sanitizePathSegment(subTopic);

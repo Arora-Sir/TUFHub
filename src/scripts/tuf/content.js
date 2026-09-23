@@ -39,6 +39,11 @@ let verdictInterval = null;
 let armedTabInfo = { label: '', count: 0 };
 let armedCode = '';
 
+// NOTE: Populated from interceptor.js's MAIN-world syllabus cache via the TUFHUB_TOPIC_INFO event (see handleTopicInfo).
+// NOTE: The DOM watcher below builds its own submission payload independently of onAcceptedSubmission and processPayload.
+// NOTE: Without this bridge, the DOM watcher would only ever see the DOM and keyword fallback chain, never the authoritative topic data.
+let cachedTopicInfo = { slug: '', mainTopic: '', subTopic: '' };
+
 function extensionVersion() {
   try {
     return chrome.runtime.getManifest().version;
@@ -291,6 +296,7 @@ async function executeGitHubSync(data, opts = {}) {
 
     const mainCategory = routeInfo.category || 'DSA';
     const mainTopic = routeInfo.mainTopic || 'General';
+    const subTopic = routeInfo.subTopic || 'General';
     const problemMeta = {
       title: rawTitle,
       codeFileName,
@@ -300,7 +306,10 @@ async function executeGitHubSync(data, opts = {}) {
 
     // Previews updated stats in memory to determine whether root README changes can fold into this commit.
     // Local storage stats are only updated once the commit successfully lands on GitHub.
-    const previewStats = computeUpdatedStats(stats, data.difficulty, slug, {}, mainCategory, mainTopic, problemMeta);
+    // NOTE: computeUpdatedStats and updateStats take (mainTopic, subTopic) parameters, not a category.
+    // NOTE: mainCategory has no parameter slot here because it is already embedded in problemMeta.folderPath.
+    // NOTE: Passing mainCategory into the mainTopic slot previously pushed every real value one position over.
+    const previewStats = computeUpdatedStats(stats, data.difficulty, slug, {}, mainTopic, subTopic, problemMeta);
     const rootReadmeFile = await buildRootReadmeFile(token, hook, previewStats);
 
     const files = [
@@ -333,7 +342,7 @@ async function executeGitHubSync(data, opts = {}) {
     await updateStats(data.difficulty, slug, {
       [codeFileName]: true,
       'README.md': true
-    }, mainCategory, mainTopic, problemMeta);
+    }, mainTopic, subTopic, problemMeta);
 
     // Notify background worker to trigger success badge
     safeSendMessage({ type: 'SET_BADGE', state: 'success' });
@@ -572,6 +581,10 @@ function triggerDOMVerdictWatcher() {
 
       pushDiag('VERDICT_ACCEPTED', 'DOM_WATCHER', `${passed}/${total}`);
 
+      // Only trusts cachedTopicInfo when it was populated for this exact slug, since a stale value could otherwise linger from a previous problem if TUFHUB_TOPIC_INFO never re-fired for the current one.
+      const currentSlug = window.location.pathname.split('/').filter(Boolean).pop() || '';
+      const topicMatch = cachedTopicInfo.slug === currentSlug ? cachedTopicInfo : null;
+
       executeGitHubSync({
         code,
         language: window.location.pathname.includes('sql') ? 'sql' : 'cpp',
@@ -581,7 +594,9 @@ function triggerDOMVerdictWatcher() {
         url: window.location.href,
         timestamp: Date.now(),
         tabLabel: armedTabInfo.label,
-        tabCount: armedTabInfo.count
+        tabCount: armedTabInfo.count,
+        syllabusMainTopic: topicMatch ? topicMatch.mainTopic : '',
+        syllabusSubTopic: topicMatch ? topicMatch.subTopic : ''
       }).catch((e) => console.error('[TUFHub Sync Engine] ❌ DOM watcher sync error:', e));
     }
   }, 1000);
@@ -605,6 +620,14 @@ function extractTitleFromUrl() {
     }
   } catch (e) {}
   return '';
+}
+
+function handleTopicInfo(event) {
+  const d = (event && event.detail) || {};
+  if (d.slug) {
+    cachedTopicInfo = { slug: d.slug, mainTopic: d.mainTopic || '', subTopic: d.subTopic || '' };
+    console.log('[TUFHub Content Script] 🧭 Cached topic info for DOM-watcher fallback:', cachedTopicInfo);
+  }
 }
 
 function handleDiagEvent(event) {
@@ -659,6 +682,8 @@ function initTUFHub() {
 
   // Relay interceptor diagnostics (MAIN world has no chrome.storage access).
   singletonListener(window, 'TUFHUB_DIAG', handleDiagEvent, '__TUFHUB_DIAG_LISTENER__');
+
+  singletonListener(window, 'TUFHUB_TOPIC_INFO', handleTopicInfo, '__TUFHUB_TOPIC_INFO_LISTENER__');
 
   singletonListener(window, 'online', flushOfflineQueue, '__TUFHUB_ONLINE_LISTENER__');
 

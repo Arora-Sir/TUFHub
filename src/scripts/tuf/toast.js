@@ -145,13 +145,13 @@ export function showToast(message, type = 'info', reasonCode = '', actionCallbac
   });
   toast.appendChild(closeBtn);
 
-  // Animate In
+  // Triggers entrance animation on the next animation frame.
   requestAnimationFrame(() => {
     toast.style.opacity = '1';
     toast.style.transform = 'translateY(0)';
   });
 
-  // Auto Dismiss logic
+  // Configures auto-dismiss duration based on toast type and action callback presence.
   const duration = type === 'error' ? 8000 : (type === 'syncing' ? 15000 : (actionCallback ? 10000 : 7000));
   activeTimer = setTimeout(() => {
     hideToast();

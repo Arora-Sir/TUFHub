@@ -36,6 +36,11 @@
   let cachedProblemSlug = '';
   let lastProcessedSubmissionId = '';
 
+  // Keyed by track ('dsa', 'sql', ...): slug -> { mainTopic, subTopic }, built from TUF's own syllabus API.
+  // NOTE: This backend syllabus tree provides ground truth hierarchy directly from the server.
+  // NOTE: Sidebar DOM scraping and title keyword guessing both failed when the site revamp removed the problem-page sidebar.
+  let syllabusMaps = {};
+
   function currentProblemSlug() {
     try {
       const parts = window.location.pathname.split('/').filter(Boolean);
@@ -43,6 +48,38 @@
     } catch (e) {
       return '';
     }
+  }
+
+  // Second URL segment: /practice/<track>/<slug> -> 'dsa' | 'sql' | ...
+  function currentTrackKey() {
+    try {
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      return (parts[1] || '').toLowerCase();
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /**
+   * Flattens a syllabus API response tree into slug -> {mainTopic, subTopic}.
+   * mainTopic represents the top-level category label.
+   * subTopic represents the immediate parent category label, left blank when the problem sits directly under the top level.
+   */
+  function buildSyllabusMap(syllabusTree) {
+    const map = new Map();
+    function walk(nodes, categoryChain) {
+      for (const node of (nodes || [])) {
+        if (node.type === 'problem' && node.slug && categoryChain.length > 0) {
+          const mainTopic = categoryChain[0];
+          const immediateParent = categoryChain[categoryChain.length - 1];
+          map.set(node.slug, { mainTopic, subTopic: immediateParent !== mainTopic ? immediateParent : '' });
+        } else if (node.children && node.children.length) {
+          walk(node.children, categoryChain.concat(node.label || ''));
+        }
+      }
+    }
+    walk(syllabusTree, []);
+    return map;
   }
 
   // Fallback title derived from URL slug when no h1 exists on the page (such as the Solution tab).
@@ -159,9 +196,25 @@
     return true;
   }
 
+  // NOTE: Bridges the syllabus map in the MAIN world to content.js's DOM-watcher backup channel in the ISOLATED world.
+  // NOTE: The DOM watcher builds its own submission payload independently of processPayload and would otherwise never see authoritative topic data at all.
+  // NOTE: Dispatched at arm time, well before the DOM watcher can detect a verdict since it polls once per second.
+  // NOTE: Dispatched again whenever the syllabus map finishes caching, in case arming happened before that fetch resolved.
+  function dispatchTopicInfo() {
+    try {
+      const slug = currentProblemSlug();
+      const trackMap = syllabusMaps[currentTrackKey()];
+      const entry = trackMap ? trackMap.get(slug) : null;
+      window.dispatchEvent(new CustomEvent('TUFHUB_TOPIC_INFO', {
+        detail: { slug, mainTopic: entry ? entry.mainTopic : '', subTopic: entry ? entry.subTopic : '' }
+      }));
+    } catch (e) {}
+  }
+
   // Provides a secondary gate opener when content.js detects a Submit button click or Ctrl+Enter.
   window.addEventListener('TUFHUB_USER_SUBMIT_CLICKED', () => {
     arm('USER_SUBMIT_CLICK');
+    dispatchTopicInfo();
   });
 
   function extractCodeFromMonaco() {
@@ -311,6 +364,22 @@
     markAlive();
     const urlStr = url.toString().toLowerCase();
 
+    // Cache the authoritative syllabus tree (topic/subtopic per slug) the page itself fetches on load.
+    // NOTE: Must run before the generic '/track' ignore-list check below, which would otherwise swallow it.
+    if (urlStr.includes('/syllabus/track')) {
+      try {
+        const info = data.data && data.data.info;
+        const tree = data.data && data.data.syllabus;
+        if (info && info.key && Array.isArray(tree)) {
+          syllabusMaps[info.key.toLowerCase()] = buildSyllabusMap(tree);
+          console.log(`[TUFHub Interceptor] 🗺️ Cached ${info.key} syllabus (${syllabusMaps[info.key.toLowerCase()].size} problems indexed).`);
+          // Covers the race where the user armed a submission before this fetch resolved.
+          if (isArmed()) dispatchTopicInfo();
+        }
+      } catch (e) {}
+      return;
+    }
+
     // Cache Problem Details on page load
     if (urlStr.includes('/problem') && !urlStr.includes('/judge/')) {
       try {
@@ -420,6 +489,10 @@
     const difficulty = extractDifficultyFromDOM();
     const description = extractDescriptionFromDOM();
 
+    // Ground-truth topic/subtopic from the cached syllabus tree, when the track's tree has been observed this session.
+    const trackMap = syllabusMaps[currentTrackKey()];
+    const syllabusEntry = trackMap ? trackMap.get(slugNow) : null;
+
     diag('VERDICT_ACCEPTED', 'DISPATCHING', `${slugNow} ${passed}/${total}`);
 
     window.dispatchEvent(new CustomEvent('TUFHUB_ACCEPTED_SUBMISSION', {
@@ -432,7 +505,9 @@
         url: window.location.href,
         timestamp: Date.now(),
         tabLabel: armState.tabLabel || '',
-        tabCount: armState.tabCount || 0
+        tabCount: armState.tabCount || 0,
+        syllabusMainTopic: syllabusEntry ? syllabusEntry.mainTopic : '',
+        syllabusSubTopic: syllabusEntry ? syllabusEntry.subTopic : ''
       }
     }));
   }

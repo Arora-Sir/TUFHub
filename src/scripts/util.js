@@ -133,6 +133,21 @@ export function decode(str) {
   return decodeURIComponent(escape(atob(str)));
 }
 
+// Matches short keywords (bst, dp, lca, bfs, dfs, xor, bit, ll) at the start of a token rather than as an arbitrary substring.
+// Left-boundary regex ensures suffixed forms like "bits" still match while preventing substring collisions.
+// NOTE: Bare substring checks produced false positives, such as "sub-BST-rings" matching bst and "a-LL-three-characters" matching ll.
+// NOTE: Longer keywords retain substring checks because their collision risk is negligible and legitimate substrings like "substring" must match.
+export function hasToken(text, token) {
+  return new RegExp('\\b' + token).test(text);
+}
+
+// Full word-boundary matcher for tokens that form prefixes of unrelated common words.
+// For example, a left-boundary check for "lis" incorrectly matches "todo-LIST" because "lis" begins "list".
+// Exact word boundary matching is safe here because "lis" has no valid suffixed forms.
+export function hasExactToken(text, token) {
+  return new RegExp('\\b' + token + '\\b').test(text);
+}
+
 export function debounce(func, wait) {
   let timeout;
   return function executedFunction(...args) {
