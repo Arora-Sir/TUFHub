@@ -19,7 +19,7 @@
 
 <p align="center">
   <a href="https://chromewebstore.google.com/detail/tufhub/fbbjinonammckffpfmhicgdcfgodfnge" target="_blank" rel="noopener noreferrer">
-    <img src="https://img.shields.io/badge/Chrome_Web_Store-v2.2.1-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
+    <img src="https://img.shields.io/badge/Chrome_Web_Store-v2.3.0-1d4ed8.svg?logo=googlechrome" alt="Chrome Web Store" />
   </a>
   <a href="https://github.com/Arora-Sir/TUFHub/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
