@@ -23,9 +23,12 @@ const DOM_WATCHER_GRACE_TICKS = 3;
 if (!window.__TUFHUB_INTENTS__) window.__TUFHUB_INTENTS__ = {};
 if (!window.__TUFHUB_CLAIMED_TOKENS__) window.__TUFHUB_CLAIMED_TOKENS__ = {};
 if (!window.__TUFHUB_SETTLED_JOBS__) window.__TUFHUB_SETTLED_JOBS__ = {};
+if (!window.__TUFHUB_OWN_JOBS__) window.__TUFHUB_OWN_JOBS__ = {};
 const intents = window.__TUFHUB_INTENTS__;
 const claimedTokens = window.__TUFHUB_CLAIMED_TOKENS__;
 const settledJobs = window.__TUFHUB_SETTLED_JOBS__;
+// Jobs this document handed to the worker, so their results still render after an in-app navigation to another problem.
+const ownJobs = window.__TUFHUB_OWN_JOBS__;
 
 function extensionVersion() {
   try {
@@ -80,6 +83,9 @@ function pruneRecords() {
   });
   Object.keys(settledJobs).forEach((jobId) => {
     if (now - settledJobs[jobId] > INTENT_TTL_MS) delete settledJobs[jobId];
+  });
+  Object.keys(ownJobs).forEach((jobId) => {
+    if (now - ownJobs[jobId] > INTENT_TTL_MS) delete ownJobs[jobId];
   });
 }
 
@@ -453,6 +459,8 @@ async function processAcceptedPayload(payload, source) {
  */
 async function submitSyncJob(job) {
   let ack = null;
+  pruneRecords();
+  ownJobs[job.id] = Date.now();
   try {
     ack = await chrome.runtime.sendMessage({ type: 'SYNC_JOB', job });
   } catch (e) {
@@ -498,15 +506,18 @@ function queuedToastMessage(reasonCode) {
 
 /**
  * Renders the worker's status for a job this tab submitted.
- * NOTE: Progress and success toasts appear only while this tab still shows the submitted problem, so a result never pops up over a different problem.
+ * NOTE: Progress and success toasts appear when this tab still shows the submitted problem, or when this document handed the job off itself.
+ * NOTE: The second case covers moving to the next problem inside TUF's single-page app while the sync runs, so the "Syncing" toast gets its result instead of expiring unanswered.
+ * NOTE: A new document (full reload or a different tab) never handed the job off, so an earlier page's result cannot pop up over an unrelated problem.
  * NOTE: A final failure shows regardless, since it needs the user to act, and it names the problem and category so it cannot be mistaken for the page on screen.
  */
 function handleSyncStatus(msg) {
   if (msg.state !== 'queued') settledJobs[msg.jobId] = Date.now();
   const onSameProblem = currentSlug() === String(msg.slug || '').toLowerCase();
+  const showHere = onSameProblem || !!ownJobs[msg.jobId];
 
   if (msg.state === 'success') {
-    if (!onSameProblem) return;
+    if (!showHere) return;
     const shortSha = (msg.commitSha || '').slice(0, 7);
     const text = shortSha ? `Synced ${msg.title} to GitHub (${shortSha})` : `Synced ${msg.title} to GitHub!`;
     if (msg.htmlUrl) {
@@ -517,9 +528,9 @@ function handleSyncStatus(msg) {
       showToast(text, 'success');
     }
   } else if (msg.state === 'skipped') {
-    if (onSameProblem) showToast(`Exact same code already synced for ${msg.title}.`, 'info');
+    if (showHere) showToast(`Exact same code already synced for ${msg.title}.`, 'info');
   } else if (msg.state === 'queued') {
-    if (onSameProblem && msg.firstFailure) showToast(queuedToastMessage(msg.reasonCode), 'info', msg.reasonCode);
+    if (showHere && msg.firstFailure) showToast(queuedToastMessage(msg.reasonCode), 'info', msg.reasonCode);
   } else if (msg.state === 'failed') {
     if (msg.reasonCode === 'AUTH_REQUIRED') {
       showToast('GitHub not connected. Click to link your account.', 'error', 'AUTH_REQUIRED', () => {
