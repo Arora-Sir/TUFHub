@@ -1,7 +1,7 @@
 /**
  * TUFHub Durable Sync Queue (background service worker only)
  * Owns every sync job from hand-off to landed commit: persistence, dedupe, the commit pipeline, retries, badge, and status reporting.
- * Content scripts only build jobs; nothing here reads a page, so a retry can never pick up another tab's context.
+ * Content scripts only build jobs. Nothing here reads a page, so a retry cannot pick up another tab's context.
  * Author: Mohit Arora (@Arora-Sir)
  */
 
@@ -150,7 +150,7 @@ export async function acceptSyncJob(job, originTabId) {
     const queue = await readQueue();
     const sameFile = it => it.job.folderPath === job.folderPath && it.job.codeFileName === job.codeFileName;
     if (queue.some(it => sameFile(it) && it.job.code === job.code)) return 'duplicate';
-    // A newer submission of the same file supersedes older queued ones so only the latest code is committed; a job already running is left to finish.
+    // A newer submission of the same file supersedes older queued ones so only the latest code is committed. A job already running finishes first.
     const kept = queue.filter(it => !sameFile(it) || it.id === runningJobId);
     kept.push(entry);
     await writeQueue(kept);
@@ -171,7 +171,7 @@ export async function acceptSyncJob(job, originTabId) {
 
 /**
  * Runs every due job, one at a time, through the shared GitHub write lock, then schedules the next retry.
- * Safe to call from any trigger (hand-off, alarm, worker start); overlapping calls collapse into one extra pass.
+ * Safe to call from any trigger (hand-off, alarm, worker start). Overlapping calls collapse into one extra pass.
  */
 export function drainSyncQueue() {
   if (drainPromise) {
@@ -300,7 +300,7 @@ async function runSyncJob(job) {
       fileLabel: job.fileLabel,
       folderPath: job.folderPath
     };
-    // computeUpdatedStats and updateStats take (mainTopic, subTopic); the category needs no slot because it is already the first segment of folderPath.
+    // computeUpdatedStats and updateStats take (mainTopic, subTopic). The category needs no slot because it is already the first segment of folderPath.
     const previewStats = computeUpdatedStats(stats, job.difficulty, job.slug, {}, job.mainTopic, job.subTopic, problemMeta);
     const rootReadmeFile = await buildRootReadmeFile(token, hook, previewStats);
 
@@ -344,7 +344,7 @@ function classifySyncError(err) {
 // Status reporting
 // -------------------------------------------------------------
 
-// Status goes only to the tab that submitted the job; content.js then shows it only while that tab is still on the same problem.
+// Status goes to the tab that submitted the job. content.js shows it while that tab still displays the same problem.
 function notifyOrigin(job, payload) {
   if (typeof job.originTabId !== 'number') return;
   try {
@@ -357,7 +357,7 @@ function notifyOrigin(job, payload) {
       category: job.category,
       ...payload
     }, () => {
-      // The originating tab may be closed or on a non-TUF page by now; the badge and Sync Health already carry the outcome.
+      // The originating tab may be closed or on a non-TUF page by now. The badge and Sync Health still record the outcome.
       void chrome.runtime.lastError;
     });
   } catch (e) {}

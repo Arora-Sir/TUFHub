@@ -83,7 +83,7 @@ function pruneRecords() {
   });
 }
 
-// Claims a submission for exactly one detection channel; whichever channel arrives second for the same token is dropped.
+// Claims a submission for exactly one detection channel. The second channel to arrive for the same token is dropped.
 function claimToken(token) {
   pruneRecords();
   if (claimedTokens[token]) return false;
@@ -147,7 +147,7 @@ function readVisibleEditorLines() {
     const container = containers.find(c => c.offsetParent !== null) || containers[0];
     if (!container) return '';
     const text = Array.from(container.querySelectorAll('.view-line'))
-      .map(el => ({ top: parseFloat(el.style.top) || 0, text: (el.innerText || el.textContent || '').replace(/ /g, ' ') }))
+      .map(el => ({ top: parseFloat(el.style.top) || 0, text: (el.innerText || el.textContent || '').replace(/\u00a0/g, ' ') }))
       .sort((a, b) => a.top - b.top)
       .map(line => line.text)
       .join('\n');
@@ -337,7 +337,7 @@ function tickDomWatcher(state) {
     .catch((e) => console.error('[TUFHub Sync Engine] ❌ DOM watcher sync error:', e));
 }
 
-// The DOM watcher syncs the interceptor's frozen snapshot whenever one arrived, so both channels commit identical data; the isolated-world fallback covers the rest.
+// The DOM watcher syncs the interceptor's frozen snapshot whenever one arrived, so both channels commit identical data. The isolated-world fallback covers submissions without one.
 function payloadFromIntent(intent) {
   const snap = intent.snapshot;
   const fb = intent.fallback || {};
@@ -449,7 +449,7 @@ async function processAcceptedPayload(payload, source) {
 
 /**
  * Hands a frozen job to the background worker, which persists it before replying.
- * From here the worker owns the job; this tab only renders the status the worker reports back for it.
+ * The worker owns the job from here. This tab renders the status the worker reports back for it.
  */
 async function submitSyncJob(job) {
   let ack = null;

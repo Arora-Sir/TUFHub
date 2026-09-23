@@ -18,14 +18,14 @@
   const PENDING_MAX_AGE_MS = 10 * 60 * 1000;
   // A submit request this soon after a click belongs to that click's submission instead of starting a new one.
   const INTENT_REQUEST_WINDOW_MS = 30 * 1000;
-  // Back-to-back submissions from different editor tabs each keep their own snapshot; beyond this many, the oldest is dropped.
+  // Back-to-back submissions from different editor tabs each keep their own snapshot. Beyond this many, the oldest is dropped.
   const MAX_PENDING = 3;
   // Dispatched submission ids are remembered this long so repeated poll responses for one submission never sync twice.
   const DISPATCHED_MEMORY_MS = 2 * 60 * 1000;
   const PENDING_KEY = '__tufhub_pending_submissions__';
   const LEGACY_ARM_KEY = '__tufhub_arm_state__';
 
-  // Only ids under these keys are specific enough to reject a verdict that carries a different value; generic keys such as id can only confirm a match.
+  // Ids under these keys are specific enough to reject a verdict that carries a different value. Generic keys such as id can only confirm a match.
   const SPECIFIC_ID_KEYS = ['submission_id', 'submissionId', 'submission_token'];
   const SUBMISSION_ID_KEYS = SPECIFIC_ID_KEYS.concat(['token', 'id', '_id']);
   // TUF's own POST /judge/submit body sends the solution as 'usercode' (confirmed live alongside problem_id, language, mode, slug).
@@ -61,7 +61,7 @@
   let cachedProblemDifficultySlug = '';
   let loggedRequestKeys = false;
   let recentlyDispatched = [];
-  // The page's last check-submit request (URL and headers), kept in memory only and replayed only to that same endpoint for abandoned submissions.
+  // The page's last check-submit request (URL and headers), held in memory and not in sessionStorage. Abandoned submissions are polled with it at that same endpoint.
   let pollTemplate = null;
   let orphanTimer = null;
   let latestSubmissionAt = 0;
@@ -235,7 +235,7 @@
       const container = containers.find(c => c.offsetParent !== null) || containers[0];
       if (!container) return '';
       const text = Array.from(container.querySelectorAll('.view-line'))
-        .map(el => ({ top: parseFloat(el.style.top) || 0, text: (el.innerText || el.textContent || '').replace(/ /g, ' ') }))
+        .map(el => ({ top: parseFloat(el.style.top) || 0, text: (el.innerText || el.textContent || '').replace(/\u00a0/g, ' ') }))
         .sort((a, b) => a.top - b.top)
         .map(line => line.text)
         .join('\n');
@@ -274,7 +274,7 @@
     return { code, languageId: '', source: code ? 'dom-lines' : '' };
   }
 
-  // Last-resort language guess used only when Monaco reports no language id; returns '' so the category default applies instead of a wrong guess.
+  // Last-resort language guess for when Monaco reports no language id. Returns '' so the category default applies instead of a wrong guess.
   function extractLanguageFromDOM() {
     try {
       const langSelectors = document.querySelectorAll('button, div, span, select');
@@ -586,7 +586,7 @@
     return null;
   }
 
-  // Records the submission id from the POST /judge/submit response; the snapshot itself is never re-read here.
+  // Records the submission id from the POST /judge/submit response without re-reading the snapshot.
   // NOTE: The user can switch editor tabs during this round trip, so reading the editor on the response would attach the other tab's code and name.
   function confirmSubmission(data, entry) {
     let target = entry && pending.includes(entry) ? entry : null;
@@ -628,7 +628,7 @@
     return null;
   }
 
-  // Poll endpoints often carry the id in the URL itself; it must appear as a whole path segment or query value, not as an incidental substring.
+  // Poll endpoints often carry the id in the URL itself. It must appear as a whole path segment or query value, not as an incidental substring.
   function urlMentionsId(urlStr, id) {
     const escaped = String(id).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return new RegExp(`[/=]${escaped}(?:[&/?#]|$)`).test(urlStr);
@@ -740,7 +740,7 @@
     }
     const now = Date.now();
     pending.forEach((p) => {
-      // Only a submission superseded by a newer one is at risk; the latest one is still being polled by the page (it may already be dispatched and gone from pending).
+      // Skip the latest submission because the page still polls it (it may already be dispatched and gone from pending). Only superseded submissions are at risk.
       if (!p.submissionId || (p.at || 0) >= latestSubmissionAt) return;
       if ((p.selfPolls || 0) >= ORPHAN_MAX_POLLS) return;
       if (now - (p.lastPolledAt || p.requestAt || p.at) < ORPHAN_IDLE_MS) return;
@@ -764,7 +764,7 @@
   function dispatchAccepted(entry, targetObj, bound, passed, total) {
     const snap = refreshSnapshot(entry.snapshot);
 
-    // A verdict proven to belong to this submission carries the server's own copy of the judged code; an unproven one could be a history row for another tab.
+    // A verdict proven to belong to this submission carries the server's own copy of the judged code. An unproven one could be a history row for another tab.
     const serverCode = bound ? firstField(targetObj, VERDICT_CODE_KEYS) : '';
     let code = serverCode || snap.code;
     let codeSource = serverCode ? 'verdict' : snap.codeSource;
@@ -853,7 +853,7 @@
           const trackKey = String(info.key).toLowerCase();
           syllabusMaps[trackKey] = buildSyllabusMap(tree);
           console.log(`[TUFHub Interceptor] 🗺️ Cached ${info.key} syllabus (${syllabusMaps[trackKey].size} problems indexed).`);
-          // Covers the race where a submission was snapshotted before this fetch resolved; each snapshot is filled by its own frozen track and slug.
+          // Covers the race where a submission was snapshotted before this fetch resolved. Each snapshot is filled by its own frozen track and slug.
           let filled = false;
           pending.forEach((p) => {
             if (p.snapshot.syllabusMainTopic) return;
@@ -921,7 +921,7 @@
 
     if (urlStr.includes('/judge/check-submit')) notePoll(url, urlStr);
 
-    // POST /judge/submit carries queued submission metadata rather than a verdict; evaluating it directly risks false positives.
+    // POST /judge/submit carries queued submission metadata rather than a verdict. Evaluating it directly risks false positives.
     if (method === 'POST' && urlStr.includes('/judge/submit')) {
       confirmSubmission(data, submitEntry);
       return;
@@ -959,7 +959,7 @@
     const rawVerdict = (targetObj.verdict || targetObj.status || targetObj.submission_status || '').toString().trim().toUpperCase();
 
     if (!rawVerdict.includes('ACCEPTED') && rawVerdict !== 'SUCCESS') {
-      // A self-polled submission that reached a final non-accepted verdict (wrong answer, TLE) is dropped so polling stops; one the page polls itself just keeps waiting.
+      // Drop a self-polled submission once it reaches a final non-accepted verdict (wrong answer, TLE) so polling stops. A submission the page polls itself keeps waiting.
       const orphan = (match && match.entry.selfPolls ? match.entry : null) || selfPolledFor(urlStr);
       const finished = (rawVerdict && !IN_PROGRESS_VERDICT.test(rawVerdict)) || reportsCompleted(data);
       if (orphan && finished) discardSubmission(orphan, `SELF_POLL_${rawVerdict || 'NO_RESULT'}`);
@@ -1070,7 +1070,7 @@
     return originalXOpen.apply(this, arguments);
   };
 
-  // Headers are tracked per request only so an abandoned submission can be polled with exactly what the page itself sends.
+  // Track headers per request so an abandoned submission can be polled with the same headers the page sends.
   XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
     try {
       if (this._tufhub_headers) this._tufhub_headers[name] = value;
