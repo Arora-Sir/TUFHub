@@ -83,7 +83,7 @@ Commits code solutions with clean folder hierarchy, language extensions, and for
 ## ✨ Features
 
 - **Auto-Sync on 100% Pass**: Only commits accepted solutions; ignores failing attempts.
-- **Multi-Tab Solution Sync**: Keep separate TUF+ tabs for bruteforce/better/optimal? Each open tab (2+) syncs as its own file instead of overwriting the last: `Solution-1.ext`/`Solution-2.ext` for default tabs, or your own tab name (e.g. `Optimal.java`) if you renamed it.
+- **Multi-Tab Solution Sync**: Keep separate TUF+ tabs for bruteforce/better/optimal? Each open tab (2+) syncs as its own file instead of overwriting the last: `Solution-1.ext`/`Solution-2.ext` for default tabs, or your own tab name (e.g. `Optimal.java`) if you renamed it. A renamed single tab is honored the same way even without opening a second one.
 - **Verifiable Sync Proof**: Success toasts show the short commit SHA and a clickable `[View commit]` link directly to GitHub.
 - **Toolbar Status Badges**: Toolbar icon shows Green `OK` on success, Red `!` on error, and Amber count for queued offline syncs.
 - **Multi-Category Organization**: Categorizes problems under DSA, SQL, and Design (OOPS/LLD). It automatically picks up any new practice category TakeUForward adds later under the same URL pattern, with no update required.
@@ -118,8 +118,7 @@ TUF-Solutions/
 └── README.md   <-- Master Index
 ```
 
-> Problems solved with a single tab keep the plain `solution.<ext>` naming above. A
-> problem folder only gets multiple files once you've used 2+ tabs in TUF+ for it.
+> A problem solved with a single tab keeps the plain `solution.<ext>` naming above only while that tab was never renamed; renaming it before you submit uses the renamed name instead, and a problem folder only gets multiple files once you've used 2+ tabs in TUF+ for it.
 
 ---
 
@@ -198,7 +197,7 @@ No. TUFHub syncs strictly when 100% test cases pass.
 TUFHub adds the new language file alongside the existing solution in the same folder and updates the master index.
 
 **Q: I keep separate tabs for bruteforce/optimal in TUF+. Will they overwrite each other?**  
-No. Once a problem has 2+ open tabs in TUF+, each accepted submission syncs as its own file: `Solution-1.ext`/`Solution-2.ext` for default tab names, or your own renamed tab (e.g. `Optimal.java`) verbatim. A problem solved with just one tab keeps the plain `solution.<ext>` naming.
+No. Once a problem has 2+ open tabs in TUF+, each accepted submission syncs as its own file: `Solution-1.ext`/`Solution-2.ext` for default tab names, or your own renamed tab (e.g. `Optimal.java`) verbatim. A problem solved with just one tab keeps the plain `solution.<ext>` naming too, unless you renamed that single tab, in which case your renamed tab name is used instead, exactly like a renamed tab in a multi-tab problem.
 
 **Q: My stats show 0 after reinstalling.**  
 Click the **Sync** button in the popup to re-scan your repository and restore your stats instantly.

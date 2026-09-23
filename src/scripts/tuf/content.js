@@ -103,11 +103,21 @@ function claimToken(token) {
 
 /**
  * Scrapes the active tab in the isolated world using ARIA role="tab" and aria-selected.
+ * A lone tab renders no close control at all (nothing to close), so it is trusted
+ * on its own instead of being filtered away as if it were some unrelated page tab.
  */
 function getActiveTabInfoDOM() {
   try {
-    const tabs = Array.from(document.querySelectorAll('[role="tab"]'))
-      .filter(t => t.querySelector('button[aria-label^="Close "]'));
+    const all = Array.from(document.querySelectorAll('[role="tab"]'));
+    if (all.length === 0) return { label: '', count: 0 };
+
+    // The close control can render as a descendant of the tab button or as a sibling inside a shared wrapper, so both are checked to match either shape TUF may use.
+    const hasCloseButton = (tab) =>
+      !!(tab.querySelector('button[aria-label^="Close "]') ||
+         (tab.parentElement && tab.parentElement.querySelector('button[aria-label^="Close "]')));
+    const withClose = all.filter(hasCloseButton);
+    // Falls back to trusting the whole set only when it is a single element, so an unrelated stray role="tab" elsewhere on the page can never be mistaken for the editor tab.
+    const tabs = withClose.length ? withClose : (all.length === 1 ? all : []);
     if (tabs.length === 0) return { label: '', count: 0 };
 
     const labelOf = (tab) => {

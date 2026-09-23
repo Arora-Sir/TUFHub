@@ -136,12 +136,22 @@
   /**
    * Identifies the active editor tab using ARIA tab semantics (role="tab" and aria-selected).
    * Strips the close button subtree to isolate the clean tab display name.
+   * A lone tab renders no close control at all (nothing to close), so it is trusted
+   * on its own instead of being filtered away as if it were some unrelated page tab.
    * Returns { label: '', count: 0 } on failure so callers degrade gracefully to solution.<ext>.
    */
   function getActiveTabInfo() {
     try {
-      const tabs = Array.from(document.querySelectorAll('[role="tab"]'))
-        .filter(t => t.querySelector('button[aria-label^="Close "]'));
+      const all = Array.from(document.querySelectorAll('[role="tab"]'));
+      if (all.length === 0) return { label: '', count: 0 };
+
+      // The close control can render as a descendant of the tab button or as a sibling inside a shared wrapper, so both are checked to match either shape TUF may use.
+      const hasCloseButton = (tab) =>
+        !!(tab.querySelector('button[aria-label^="Close "]') ||
+           (tab.parentElement && tab.parentElement.querySelector('button[aria-label^="Close "]')));
+      const withClose = all.filter(hasCloseButton);
+      // Falls back to trusting the whole set only when it is a single element, so an unrelated stray role="tab" elsewhere on the page can never be mistaken for the editor tab.
+      const tabs = withClose.length ? withClose : (all.length === 1 ? all : []);
       if (tabs.length === 0) return { label: '', count: 0 };
 
       const labelOf = (tab) => {

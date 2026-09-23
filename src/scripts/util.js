@@ -140,23 +140,25 @@ export function sanitizePathSegment(segment) {
 
 /**
  * Derives filename for a synced solution (e.g. "Solution-1.cpp", "Optimal.java").
- * Diverges from legacy "solution.<ext>" only when 2+ tabs exist to preserve multiple solution strategies.
- * Unrenamed tabs ("Tab-1") map to "Solution-1", while custom names ("Optimal") are preserved verbatim.
+ * Diverges from legacy "solution.<ext>" whenever the active tab carries a custom name, whether that tab is alone or one of several, since a rename is always a deliberate signal worth keeping.
+ * An unrenamed default tab ("Tab-1") keeps "solution.<ext>" while alone or maps to "Solution-1" once a second tab exists, while a custom name ("Optimal") is preserved verbatim either way.
  */
 export function deriveCodeFileName(tabLabel, tabCount, ext) {
-  if (!tabCount || tabCount < 2 || !tabLabel) return `solution.${ext}`;
+  if (!tabCount || !tabLabel) return `solution.${ext}`;
   const m = tabLabel.match(/^Tab-(\d+)$/i);
+  if (tabCount < 2) return m ? `solution.${ext}` : `${sanitizePathSegment(tabLabel)}.${ext}`;
   const base = m ? `Solution-${m[1]}` : sanitizePathSegment(tabLabel);
   return `${base}.${ext}`;
 }
 
 /**
  * Display label for solution files in the root README Solution(s) column.
- * Single-tab problems retain the bare extension label (e.g. "JAVA") for repository continuity.
+ * An unrenamed single tab retains the bare extension label (e.g. "JAVA") for repository continuity, but a custom name on that same lone tab is shown verbatim instead, exactly like a renamed tab alongside others.
  */
 export function deriveFileLabel(tabLabel, tabCount, ext) {
-  if (!tabCount || tabCount < 2 || !tabLabel) return ext.toUpperCase();
+  if (!tabCount || !tabLabel) return ext.toUpperCase();
   const m = tabLabel.match(/^Tab-(\d+)$/i);
+  if (tabCount < 2) return m ? ext.toUpperCase() : sanitizePathSegment(tabLabel);
   return m ? `Solution-${m[1]}` : sanitizePathSegment(tabLabel);
 }
 
