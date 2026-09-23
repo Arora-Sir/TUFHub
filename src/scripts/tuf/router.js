@@ -12,6 +12,9 @@
  * - /practice-test/<subject>/... (timed multi-question quiz sets without a single free-response problem)
  * - /learning/<subject>/... (video and editorial lesson pages without code editors)
  * - /prep-hub/... (sheet landing and overview pages)
+ *
+ * resolveHierarchy() is pure: it reads only its payload, never the live page, so it can run safely in the background worker.
+ * captureTopicHints() is the only DOM reader here, and content.js calls it once at submit intent on the page being submitted.
  */
 
 import { sanitizePathSegment, hasToken, hasExactToken } from '../util.js';
@@ -101,6 +104,31 @@ function extractSubTopicFromDOM() {
     if (bodyText.includes('Logic Building')) return 'Logic-Building';
   } catch (e) {}
   return '';
+}
+
+const EMPTY_HINTS = Object.freeze({ slug: '', sidebarMain: '', sidebarSub: '', bodySubTopic: '' });
+
+/**
+ * Reads the page-side topic signals once, on the page being submitted, at the moment of submit intent.
+ * NOTE: Retries can run minutes later and in a different tab, so a DOM read at routing time describes whatever page is open then, not the submission.
+ * NOTE: A DSA submission routed while a SQL page is on screen would otherwise land under that SQL page's sidebar topic (for example DSA/Aggregation-and-Grouping).
+ * NOTE: Each hint set records the slug it was read on, and resolveHierarchy() ignores hints whose slug differs from the submission's own.
+ */
+export function captureTopicHints() {
+  const pathname = typeof location !== 'undefined' ? location.pathname : '';
+  const sidebar = extractActiveSidebarTopic();
+  return {
+    slug: (pathname.split('/').filter(Boolean).pop() || '').toLowerCase(),
+    sidebarMain: sidebar.mainLabel,
+    sidebarSub: sidebar.subLabel,
+    bodySubTopic: extractSubTopicFromDOM()
+  };
+}
+
+function hintsForSlug(data, slug) {
+  const hints = data && data.topicHints;
+  if (!hints || typeof hints !== 'object' || !slug) return EMPTY_HINTS;
+  return String(hints.slug || '').toLowerCase() === slug ? hints : EMPTY_HINTS;
 }
 
 function extractTopicFromPathname(pathname, ignoreKeywords = []) {
@@ -202,13 +230,12 @@ function dsaKeywordFallback(pathname, searchParams, data = {}) {
 
 /**
  * Shared topic resolver for all problem categories.
- * Prioritizes sidebar top-level accordion headers for DSA to preserve canonical topic groupings.
+ * Prioritizes the sidebar's top-level accordion header (captured at submit intent) for DSA to preserve canonical topic groupings.
  * Query parameters are used first for SQL, Design, and generic categories.
  */
-function resolveTopicForCategory(category, pathname, searchParams, data) {
+function resolveTopicForCategory(category, pathname, searchParams, data, hints) {
   if (category === 'DSA') {
-    const sidebarTopic = extractActiveSidebarTopic();
-    const domTopic = canonicalizeTopicLabel(sidebarTopic.mainLabel);
+    const domTopic = canonicalizeTopicLabel(hints.sidebarMain);
     if (domTopic) return domTopic;
 
     const paramTopic = (searchParams.get('category') || searchParams.get('topic') || '').trim();
@@ -223,8 +250,7 @@ function resolveTopicForCategory(category, pathname, searchParams, data) {
   const paramTopic = (searchParams.get('category') || searchParams.get('topic') || '').trim();
   if (paramTopic) return titleCaseSlug(paramTopic);
 
-  const sidebarTopic = extractActiveSidebarTopic();
-  const domTopic = canonicalizeTopicLabel(sidebarTopic.mainLabel);
+  const domTopic = canonicalizeTopicLabel(hints.sidebarMain);
   if (domTopic) return domTopic;
 
   return 'General';
@@ -266,14 +292,17 @@ function unsupported(type) {
   };
 }
 
+/**
+ * Resolves category, topic, subtopic, and folder path for a submission payload.
+ * Reads only data.url, data.title, data.syllabusMainTopic/SubTopic, and data.topicHints, never window or document.
+ * A payload without a parseable url is unsupported rather than routed by the current tab's address.
+ */
 export function resolveHierarchy(data = {}) {
-  const pageUrl = data.url || window.location.href;
-  let urlObj;
+  let urlObj = null;
   try {
-    urlObj = new URL(pageUrl);
-  } catch (e) {
-    urlObj = { pathname: '', searchParams: new URLSearchParams() };
-  }
+    urlObj = new URL(data.url);
+  } catch (e) {}
+  if (!urlObj) return unsupported('UNSUPPORTED');
 
   const pathname = urlObj.pathname.toLowerCase();
   const searchParams = urlObj.searchParams;
@@ -287,12 +316,13 @@ export function resolveHierarchy(data = {}) {
 
   // Slug is derived directly from the URL pathname to ensure stable folder naming across detection channels.
   const slug = pathname.split('/').filter(Boolean).pop() || '';
+  const hints = hintsForSlug(data, slug);
 
   // -------------------------------------------------------------
   // SQL problems follow a flat hierarchy: SQL/<mainTopic>/<slug> without nested subtopics.
   // -------------------------------------------------------------
   if (category === 'SQL') {
-    let mainTopic = authoritativeTopic(data) || resolveTopicForCategory('SQL', pathname, searchParams, data);
+    let mainTopic = authoritativeTopic(data) || resolveTopicForCategory('SQL', pathname, searchParams, data, hints);
 
     // Fallback keyword classifier for SQL problems when the syllabus map, query parameters, and DOM all lack a topic.
     if (mainTopic === 'General') {
@@ -326,9 +356,9 @@ export function resolveHierarchy(data = {}) {
   // -------------------------------------------------------------
   // DSA, Design, and generic subjects share the canonical <Category>/<mainTopic> folder hierarchy.
   // -------------------------------------------------------------
-  const mainTopic = authoritativeTopic(data) || resolveTopicForCategory(category, pathname, searchParams, data);
+  const mainTopic = authoritativeTopic(data) || resolveTopicForCategory(category, pathname, searchParams, data, hints);
   const authSubTopic = data && data.syllabusSubTopic ? canonicalizeTopicLabel(String(data.syllabusSubTopic).trim()) : '';
-  const subTopic = authSubTopic || canonicalizeTopicLabel(extractActiveSidebarTopic().subLabel) || extractSubTopicFromDOM() || 'General';
+  const subTopic = authSubTopic || canonicalizeTopicLabel(hints.sidebarSub) || hints.bodySubTopic || 'General';
 
   const cleanMain = sanitizePathSegment(mainTopic);
   const cleanSub = sanitizePathSegment(subTopic);

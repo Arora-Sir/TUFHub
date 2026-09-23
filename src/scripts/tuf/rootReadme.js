@@ -4,6 +4,7 @@
  */
 
 import { decode, normalizeReadmeForCompare, classifyDifficulty, hasToken } from '../util.js';
+import { ghGet } from './uploader.js';
 
 /**
  * Builds root README file payload.
@@ -15,12 +16,7 @@ export async function buildRootReadmeFile(token, hook, stats) {
   let existingContent = '';
 
   try {
-    const res = await fetch(`https://api.github.com/repos/${hook}/contents/${readmePath}`, {
-      headers: {
-        Authorization: `token ${token}`,
-        Accept: 'application/vnd.github.v3+json'
-      }
-    });
+    const res = await ghGet(`https://api.github.com/repos/${hook}/contents/${readmePath}`, token);
 
     if (res.ok) {
       const json = await res.json();

@@ -3,44 +3,23 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-import { reconcileRepoFromTree, isCodeIdentical, updateCodeHash } from './tuf/stats.js';
-import { commitFiles, deleteFiles } from './tuf/uploader.js';
+import { reconcileRepoFromTree } from './tuf/stats.js';
+import { deleteFiles } from './tuf/uploader.js';
+import { enqueueGitHubWrite } from './tuf/writeQueue.js';
+import { acceptSyncJob, applyBadgeState, drainSyncQueue, SYNC_RETRY_ALARM } from './tuf/syncQueue.js';
 import { TUF_CONTENT_SCRIPT_URL } from './util.js';
 
 const DEFAULT_CLIENT_ID = ''; // User provides their own OAuth Client ID via the welcome page
 
 // -------------------------------------------------------------
-// GitHub write serialization queue
-//
-// Serializes all repository mutations (auto-sync commits, folder deletions, tree reconciliation) through a single FIFO promise chain.
-// Prevents concurrent writes from racing GitHub branch ref updates and causing HTTP 409 or 422 conflicts.
-// Module-scoped queue naturally resets when the MV3 service worker sleeps and wakes.
-let ghWriteQueue = Promise.resolve();
-
-function enqueueGitHubWrite(taskFn) {
-  const result = ghWriteQueue.then(taskFn, taskFn);
-  ghWriteQueue = result.catch(() => {}); // never let a rejection poison the chain for the next caller
-  return result;
-}
-
-function applyBadgeState(badgeData) {
-  const { state, count } = badgeData || {};
-  if (state === 'success') {
-    chrome.action.setBadgeText({ text: 'OK' });
-    chrome.action.setBadgeBackgroundColor({ color: '#22c55e' });
-    setTimeout(() => {
-      chrome.action.setBadgeText({ text: '' });
-    }, 5000);
-  } else if (state === 'error') {
-    chrome.action.setBadgeText({ text: '!' });
-    chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
-  } else if (state === 'queued') {
-    chrome.action.setBadgeText({ text: String(count || 1) });
-    chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' });
-  } else {
-    chrome.action.setBadgeText({ text: '' });
-  }
-}
+// Durable sync queue wake-ups
+// -------------------------------------------------------------
+// NOTE: Every worker start (browser launch, alarm, incoming message) resumes queued sync jobs, because MV3 can stop the worker between retries.
+// NOTE: The alarm is the backstop for retries scheduled further out than the worker's idle lifetime.
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm && alarm.name === SYNC_RETRY_ALARM) drainSyncQueue();
+});
+drainSyncQueue();
 
 chrome.runtime.onStartup.addListener(() => {
   chrome.storage.local.get(['tufhub_badge'], (res) => {
@@ -174,16 +153,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
 
-  if (request.type === 'SET_BADGE' || request.type === 'SHOW_BADGE_SUCCESS') {
-    const state = request.type === 'SHOW_BADGE_SUCCESS' ? 'success' : request.state;
-    const count = request.count;
-    const badgeData = { state, count };
-    chrome.storage.local.set({ tufhub_badge: badgeData });
-    applyBadgeState(badgeData);
-    sendResponse({ status: 'badge_updated' });
-    return true;
-  }
-
   if (request.type === 'CLEAR_BADGE') {
     chrome.storage.local.remove(['tufhub_badge']);
     chrome.action.setBadgeText({ text: '' });
@@ -204,30 +173,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
 
-  if (request.type === 'GITHUB_COMMIT_FILES') {
-    // NOTE: Reads token and hook directly from storage to enforce service worker trust boundary.
-    // Content-script sync is routed through the module queue instead of committing directly in the tab.
-    // Prevents races against concurrent tab syncs, popup reconciliations, and offline flushes.
-    chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], (res) => {
-      const token = res.tufhub_token;
-      const hook = res.tufhub_hook;
-      if (!token || !hook) {
-        sendResponse({ success: false, error: 'GitHub not connected (missing token or hook).' });
-        return;
-      }
-      const { slug, codeFileName, code } = request;
-      enqueueGitHubWrite(async () => {
-        // Atomic check right before commit: catches duplicate writes queued while waiting in the FIFO chain.
-        if (slug && codeFileName && await isCodeIdentical(slug, codeFileName, code)) {
-          return { skipped: true };
-        }
-        const result = await commitFiles(token, hook, request.files, request.commitMessage);
-        if (slug && codeFileName) await updateCodeHash(slug, codeFileName, code);
-        return { skipped: false, ...result };
-      })
-        .then((result) => sendResponse({ success: true, ...result }))
-        .catch((err) => sendResponse({ success: false, error: (err && err.message) ? err.message : String(err) }));
-    });
+  if (request.type === 'SYNC_JOB') {
+    // NOTE: The worker owns every sync from here on (persist, commit, retry), so a content script never commits or replays anything itself.
+    // NOTE: Retries run here with no page attached, which is what keeps a queued DSA sync from reading whichever TUF tab happens to be open.
+    // NOTE: sender.tab.id is recorded so progress and results are reported only to the tab that submitted.
+    acceptSyncJob(request.job, sender && sender.tab ? sender.tab.id : null)
+      .then((ack) => sendResponse(ack))
+      .catch((err) => sendResponse({ accepted: false, reasonCode: 'SYNC_ERROR', error: (err && err.message) ? err.message : String(err) }));
     return true; // Keep message channel open for async response
   }
 

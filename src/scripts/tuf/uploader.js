@@ -14,13 +14,24 @@ function ghHeaders(token, extra = {}) {
   };
 }
 
+/**
+ * GET against the GitHub REST API that always revalidates instead of trusting the browser's HTTP cache.
+ * NOTE: GitHub answers with Cache-Control: private, max-age=60, so a plain fetch can return a copy up to 60 seconds old without asking GitHub at all.
+ * NOTE: A stale branch ref makes every retry in commitTreeEntries build on the same outdated parent and fail as "not a fast forward".
+ * NOTE: That stale ref is what pushed back-to-back syncs into the retry queue, where a replay ran long after the submission.
+ * NOTE: cache: 'no-cache' sends the stored ETag on every read, and GitHub does not count the resulting 304 responses against the rate limit.
+ */
+export function ghGet(url, token) {
+  return fetch(url, { headers: ghHeaders(token), cache: 'no-cache' });
+}
+
 // Branch cache per hook so repeat commits in the same session avoid redundant branch resolution.
 const branchCache = new Map();
 
 async function resolveDefaultBranch(token, hook) {
   if (branchCache.has(hook)) return branchCache.get(hook);
   try {
-    const res = await fetch(`https://api.github.com/repos/${hook}`, { headers: ghHeaders(token) });
+    const res = await ghGet(`https://api.github.com/repos/${hook}`, token);
     if (res.ok) {
       const json = await res.json();
       if (json.default_branch) {
@@ -33,7 +44,7 @@ async function resolveDefaultBranch(token, hook) {
 }
 
 async function getRef(token, hook, branch) {
-  const res = await fetch(`https://api.github.com/repos/${hook}/git/ref/heads/${branch}`, { headers: ghHeaders(token) });
+  const res = await ghGet(`https://api.github.com/repos/${hook}/git/ref/heads/${branch}`, token);
   if (!res.ok) return null;
   const json = await res.json();
   return json.object ? json.object.sha : null;
@@ -77,7 +88,7 @@ async function commitTreeEntries(token, hook, treeEntries, commitMessage, retrie
     try {
       const { branch, headSha } = await resolveBranchAndHead(token, hook);
 
-      const commitRes = await fetch(`https://api.github.com/repos/${hook}/git/commits/${headSha}`, { headers: ghHeaders(token) });
+      const commitRes = await ghGet(`https://api.github.com/repos/${hook}/git/commits/${headSha}`, token);
       if (!commitRes.ok) throw new Error(`GitHub Commit Lookup Failed (${commitRes.status})`);
       const commitJson = await commitRes.json();
       const baseTreeSha = commitJson.tree.sha;
@@ -89,6 +100,17 @@ async function commitTreeEntries(token, hook, treeEntries, commitMessage, retrie
       });
       if (!treeRes.ok) throw new Error(`GitHub Tree Create Failed (${treeRes.status})`);
       const treeJson = await treeRes.json();
+
+      // An identical tree means every file already matches the branch head, so a commit here would only add an empty entry to the history.
+      // NOTE: This also absorbs a job replayed after the worker died between landing its commit and recording its code hash.
+      if (treeJson.sha === baseTreeSha) {
+        return {
+          commitSha: headSha,
+          htmlUrl: `https://github.com/${hook}/commit/${headSha}`,
+          treeSha: treeJson.sha,
+          unchanged: true
+        };
+      }
 
       const newCommitRes = await fetch(`https://api.github.com/repos/${hook}/git/commits`, {
         method: 'POST',
@@ -198,12 +220,7 @@ export async function uploadToGitHub(token, hook, path, content, commitMessage, 
   for (let attempt = 0; attempt < retries; attempt++) {
     // 1. Fetch latest SHA from GitHub API before every attempt to guarantee fresh branch HEAD
     try {
-      const getRes = await fetch(url, {
-        headers: {
-          Authorization: `token ${token}`,
-          Accept: 'application/vnd.github.v3+json'
-        }
-      });
+      const getRes = await ghGet(url, token);
       if (getRes.ok) {
         const getJson = await getRes.json();
         currentSha = getJson.sha;

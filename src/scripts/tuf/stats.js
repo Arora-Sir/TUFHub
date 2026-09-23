@@ -1,10 +1,10 @@
 /**
- * TUFHub Stats, SHA State & Offline Queue Persistence
+ * TUFHub Stats, SHA State & Code-Hash Persistence
  * Author: Mohit Arora (@Arora-Sir)
  */
 
 import { decode, normalizeReadmeForCompare, classifyDifficulty } from '../util.js';
-import { uploadToGitHub } from './uploader.js';
+import { ghGet, uploadToGitHub } from './uploader.js';
 import { generateRootReadmeMarkdown } from './rootReadme.js';
 
 export const DIAG_LIMIT = 50;
@@ -23,18 +23,20 @@ export function isExtensionContextAlive() {
 
 /**
  * Appends an entry to a bounded diagnostic ring buffer in chrome.storage.local for popup inspection.
+ * The background worker passes the submission's own url, since its location is the extension script rather than a TUF page.
  */
-export async function pushDiag(stage, reasonCode = '', detail = '') {
+export async function pushDiag(stage, reasonCode = '', detail = '', url = '') {
   if (!isExtensionContextAlive()) return;
   try {
     const data = await safeGetStorage('tufhub_diag');
     const log = Array.isArray(data.tufhub_diag) ? data.tufhub_diag : [];
+    const pageUrl = url || ((typeof location !== 'undefined' && location.href) ? location.href : '');
     log.push({
       ts: Date.now(),
       stage,
       reasonCode,
       detail: typeof detail === 'string' ? detail.slice(0, 300) : String(detail).slice(0, 300),
-      url: (typeof location !== 'undefined' && location.href) ? location.href.slice(0, 200) : ''
+      url: pageUrl.slice(0, 200)
     });
     while (log.length > DIAG_LIMIT) log.shift();
     await safeSetStorage({ tufhub_diag: log });
@@ -225,66 +227,25 @@ function generateHashCode(str) {
   return hash.toString(36);
 }
 
-// Keyed by slug + filename so syncing a second tab does not invalidate the change detection hash of the first tab.
-function codeHashKey(slug, fileName) {
-  return `${slug}::${fileName}`;
+// Keyed by the full repo path of the file, so each solution tab keeps its own change-detection hash.
+// NOTE: Path keys (not slug keys) mean a copy committed to the wrong folder can never make the same code look "already synced" for the right folder.
+function codeHashKey(folderPath, fileName) {
+  return `${folderPath}/${fileName}`;
 }
 
-export async function isCodeIdentical(slug, fileName, newCode) {
+export async function isCodeIdentical(folderPath, fileName, newCode) {
   const hash = generateHashCode(newCode || '');
   const storage = await safeGetStorage('tufhub_code_hashes');
   const hashes = storage.tufhub_code_hashes || {};
-  return hashes[codeHashKey(slug, fileName)] === hash;
+  return hashes[codeHashKey(folderPath, fileName)] === hash;
 }
 
-export async function updateCodeHash(slug, fileName, newCode) {
+export async function updateCodeHash(folderPath, fileName, newCode) {
   const hash = generateHashCode(newCode || '');
   const storage = await safeGetStorage('tufhub_code_hashes');
   const hashes = storage.tufhub_code_hashes || {};
-  hashes[codeHashKey(slug, fileName)] = hash;
+  hashes[codeHashKey(folderPath, fileName)] = hash;
   await safeSetStorage({ tufhub_code_hashes: hashes });
-}
-
-
-export async function isDebounced(problemSlug, fileName, cooldownMs = 5000) {
-  const stats = await getStats();
-  const key = fileName ? `${problemSlug}::${fileName}` : problemSlug;
-  const lastTime = stats.last_sync_time ? stats.last_sync_time[key] : null;
-  if (lastTime && (Date.now() - lastTime < cooldownMs)) {
-    return true;
-  }
-  return false;
-}
-
-// -------------------------------------------------------------
-// Offline Queue Management
-// -------------------------------------------------------------
-export async function enqueueOfflineSync(syncData) {
-  const data = await safeGetStorage('tufhub_queue');
-  const queue = data.tufhub_queue || [];
-  queue.push({
-    id: `queue_${Date.now()}`,
-    syncData,
-    timestamp: Date.now()
-  });
-  await safeSetStorage({ tufhub_queue: queue });
-  console.log('[TUFHub Debug] Enqueued failed sync to offline queue:', syncData.title);
-}
-
-export async function getOfflineQueue() {
-  const data = await safeGetStorage('tufhub_queue');
-  return data.tufhub_queue || [];
-}
-
-export async function clearOfflineQueue() {
-  await safeSetStorage({ tufhub_queue: [] });
-}
-
-/**
- * Replaces the queue wholesale, allowing the flush loop to retain unplayed items on failure.
- */
-export async function setOfflineQueue(queue) {
-  await safeSetStorage({ tufhub_queue: Array.isArray(queue) ? queue : [] });
 }
 
 export async function resetStats() {
@@ -333,12 +294,7 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
     };
 
     // 1. Fetch root README.md from repo
-    const res = await fetch(`https://api.github.com/repos/${hook}/contents/README.md`, {
-      headers: {
-        Authorization: `token ${token}`,
-        Accept: 'application/vnd.github.v3+json'
-      }
-    });
+    const res = await ghGet(`https://api.github.com/repos/${hook}/contents/README.md`, token);
 
     if (res.ok) {
       const json = await res.json();
@@ -389,14 +345,18 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
                 const solCol = cols[2] || '';
                 const solMatches = [...solCol.matchAll(/\[(.*?)\]\((.*?)\)/g)];
                 const languages = {};
+                // Rebuilt from each file's own name (as reconcile does), since the README generator renders `files` labels verbatim and without this map falls back to uppercased extension labels ("Brute" turning into "BRUTE").
+                const files = {};
                 let primaryCodeFileName = '';
 
                 solMatches.forEach(m => {
                   const label = m[1].toLowerCase();
                   const link = m[2];
-                  const fileName = link ? link.split('/').pop() : '';
+                  let fileName = link ? link.split('/').pop() : '';
+                  try { fileName = decodeURIComponent(fileName); } catch (e) {}
                   if (fileName && fileName !== 'undefined') {
                     languages[label] = fileName;
+                    files[fileName] = { ext: fileName.includes('.') ? fileName.split('.').pop() : 'code', label: labelFromFileName(fileName) };
                     if (!primaryCodeFileName) primaryCodeFileName = fileName;
                   }
                 });
@@ -420,6 +380,7 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
                   folderPath,
                   codeFileName: primaryCodeFileName,
                   languages,
+                  files,
                   updatedAt: priorUpdatedAt || null
                 };
               }
@@ -446,22 +407,8 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
     }
 
     // 2. Fallback: Scan Git Tree if README.md summary not present
-    const treeUrl = `https://api.github.com/repos/${hook}/git/trees/main?recursive=1`;
-    let treeRes = await fetch(treeUrl, {
-      headers: {
-        Authorization: `token ${token}`,
-        Accept: 'application/vnd.github.v3+json'
-      }
-    });
-
-    if (!treeRes.ok) {
-      treeRes = await fetch(`https://api.github.com/repos/${hook}/git/trees/master?recursive=1`, {
-        headers: {
-          Authorization: `token ${token}`,
-          Accept: 'application/vnd.github.v3+json'
-        }
-      });
-    }
+    let treeRes = await fetchTree(token, hook, 'main');
+    if (!treeRes.ok) treeRes = await fetchTree(token, hook, 'master');
 
     if (treeRes.ok) {
       const treeData = await treeRes.json();
@@ -514,13 +461,8 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
 const RECONCILE_COOLDOWN_MS = 60 * 1000;
 const RATE_LIMIT_FLOOR = 50;
 
-async function fetchTree(token, hook, branch) {
-  return fetch(`https://api.github.com/repos/${hook}/git/trees/${branch}?recursive=1`, {
-    headers: {
-      Authorization: `token ${token}`,
-      Accept: 'application/vnd.github.v3+json'
-    }
-  });
+function fetchTree(token, hook, branch) {
+  return ghGet(`https://api.github.com/repos/${hook}/git/trees/${branch}?recursive=1`, token);
 }
 
 /**
@@ -531,12 +473,7 @@ async function fetchTree(token, hook, branch) {
  */
 async function fetchLastCommitDate(token, hook, path) {
   try {
-    const res = await fetch(`https://api.github.com/repos/${hook}/commits?path=${encodeURIComponent(path)}&per_page=1`, {
-      headers: {
-        Authorization: `token ${token}`,
-        Accept: 'application/vnd.github.v3+json'
-      }
-    });
+    const res = await ghGet(`https://api.github.com/repos/${hook}/commits?path=${encodeURIComponent(path)}&per_page=1`, token);
     if (!res.ok) return null;
     const json = await res.json();
     const commit = json[0] && json[0].commit;
@@ -707,17 +644,21 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
     }
   });
 
-  // Purge dedup and debounce state for removed slugs so re-added problems are not misidentified as duplicates.
-  // NOTE: Storage maps are keyed as slug::fileName, requiring a prefix split check rather than a plain key lookup.
+  // Keeps a code hash only while its exact file still exists in the live tree, so a deleted or moved file can be synced again with identical code.
+  // NOTE: Hashes are keyed by full repo path (folderPath/fileName), so the tree lookup is exact rather than a slug prefix match.
+  // NOTE: Slug-keyed entries (slug::fileName) from older versions are dropped here because nothing reads them anymore.
   const removedSlugs = Object.keys(existingProblems).filter(slug => !liveSlugs.has(slug));
   const hashData = await safeGetStorage('tufhub_code_hashes');
   const codeHashes = hashData.tufhub_code_hashes || {};
   const purgedHashes = {};
   Object.keys(codeHashes).forEach(key => {
-    const slug = key.split('::')[0];
-    if (liveSlugs.has(slug) || !removedSlugs.includes(slug)) purgedHashes[key] = codeHashes[key];
+    if (key.includes('::')) return;
+    const cut = key.lastIndexOf('/');
+    const entry = cut > 0 ? folders.get(key.slice(0, cut)) : null;
+    if (entry && entry.files.some(f => f.name === key.slice(cut + 1))) purgedHashes[key] = codeHashes[key];
   });
 
+  // Debounce timestamps stay slug-keyed (slug::fileName), so removed problems are purged by their slug prefix.
   const purgedLastSyncTime = {};
   Object.keys(currentStats.last_sync_time || {}).forEach(key => {
     const slug = key.split('::')[0];
@@ -739,12 +680,7 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
   let existingContent = '';
   let readmeSha = '';
   try {
-    const readmeRes = await fetch(`https://api.github.com/repos/${hook}/contents/README.md`, {
-      headers: {
-        Authorization: `token ${token}`,
-        Accept: 'application/vnd.github.v3+json'
-      }
-    });
+    const readmeRes = await ghGet(`https://api.github.com/repos/${hook}/contents/README.md`, token);
     if (readmeRes.ok) {
       const json = await readmeRes.json();
       existingContent = decode(json.content);

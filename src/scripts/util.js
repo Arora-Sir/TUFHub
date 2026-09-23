@@ -53,8 +53,54 @@ export const LANGUAGE_MAP = {
   mysql: 'sql',
   postgresql: 'sql',
   sqlite: 'sql',
-  oracle: 'sql'
+  oracle: 'sql',
+  // Lowercase aliases and Monaco language ids, since callers look languages up case-insensitively and the editor reports ids like 'cpp', 'python', 'csharp'.
+  'c++': 'cpp',
+  c: 'c',
+  python3: 'py',
+  go: 'go',
+  'c#': 'cs',
+  pgsql: 'sql',
+  // Bare extensions round-trip to themselves because the DOM language scan reports 'py', 'js', 'ts', 'cs', 'rs' directly.
+  py: 'py',
+  js: 'js',
+  ts: 'ts',
+  cs: 'cs',
+  rs: 'rs'
 };
+
+/**
+ * Resolves the solution file extension from whatever language identifier the judge, Monaco, or a DOM scan produced.
+ * Accepts display names ('Java'), Monaco ids ('cpp'), numeric judge ids ('7'), and bare extensions ('py').
+ * Falls back to the category default so a SQL answer never lands as a .cpp file.
+ */
+export function extensionForLanguage(language, category) {
+  const raw = language == null ? '' : String(language).trim();
+  const ext = LANGUAGE_MAP[raw] || LANGUAGE_MAP[raw.toLowerCase()];
+  if (ext) return ext;
+  return category === 'SQL' ? 'sql' : 'cpp';
+}
+
+// Readable fallback title built from the URL slug, used only when neither TUF's API nor the page h1 supplied one.
+export function titleFromSlug(slug) {
+  if (!slug) return '';
+  return slug
+    .split('-')
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+// Drops the panel-state param (tab=submissions, tab=problem) so a saved problem link does not depend on which panel was open at submit time.
+export function stripUiQueryParams(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.delete('tab');
+    return parsed.toString();
+  } catch (e) {
+    return url || '';
+  }
+}
 
 export function convertToSlug(title) {
   if (!title) return 'unknown-problem';
