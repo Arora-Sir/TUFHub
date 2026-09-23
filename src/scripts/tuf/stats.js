@@ -3,9 +3,10 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-import { decode, normalizeReadmeForCompare, classifyDifficulty } from '../util.js';
+import { decode, normalizeReadmeForCompare, classifyDifficulty, mapWithConcurrency } from '../util.js';
 import { ghGet, uploadToGitHub } from './uploader.js';
 import { generateRootReadmeMarkdown } from './rootReadme.js';
+import { detectReadmeIssues } from './repair.js';
 
 export const DIAG_LIMIT = 50;
 
@@ -494,6 +495,29 @@ async function fetchLastCommitDate(token, hook, path) {
 }
 
 /**
+ * Checks one problem's README for a stale TUF link or leftover box-art, without fetching TUF at all.
+ * NOTE: SHA-gated so a README already checked at its current content is never re-fetched: content only changes on a commit, and this reconcile pass already sees each blob's current sha for free from the tree it just read.
+ * Non-fatal on failure: falls back to the last known verdict for this slug, same as fetchLastCommitDate, so one bad fetch cannot break reconcile for every other problem.
+ */
+async function scanReadmeForRepair(token, hook, folderPath, readmeSha, cached) {
+  if (cached && cached.readmeSha === readmeSha) {
+    return { readmeSha, needsRepair: !!cached.needsRepair, repairReasons: cached.repairReasons || [] };
+  }
+  try {
+    const res = await ghGet(`https://api.github.com/repos/${hook}/contents/${folderPath}/README.md`, token);
+    if (!res.ok) return { readmeSha, needsRepair: false, repairReasons: [] };
+    const json = await res.json();
+    const content = decode(json.content);
+    const { needsRepair, reasons } = detectReadmeIssues(content);
+    return { readmeSha, needsRepair, repairReasons: reasons };
+  } catch (e) {
+    return cached
+      ? { readmeSha: cached.readmeSha, needsRepair: !!cached.needsRepair, repairReasons: cached.repairReasons || [] }
+      : { readmeSha, needsRepair: false, repairReasons: [] };
+  }
+}
+
+/**
  * Reconstructs the display label for a file from its filename, matching deriveFileLabel() naming logic.
  * Multi-tab files (e.g. "Optimal.java") round-trip to their tab label ("Optimal").
  * Legacy single-tab files ("solution.java") round-trip to their uppercase extension ("JAVA").
@@ -575,6 +599,7 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
     const entry = folders.get(folderPath);
     if (fileName === 'README.md') {
       entry.hasReadme = true;
+      entry.readmeSha = item.sha;
     } else {
       entry.files.push({ name: fileName, sha: item.sha });
     }
@@ -589,7 +614,8 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
 
   // Backfill updatedAt timestamps from GitHub commit history rather than trusting local storage cache.
   // Self-heals local storage timestamps against previous reconcile stomping bugs.
-  await Promise.all(Array.from(folders.entries()).map(async ([folderPath, entry]) => {
+  // NOTE: Bounded concurrency, not a bare Promise.all: this loop now fires two GitHub reads per folder (commit date, repair scan) instead of one, and an unbounded burst across every synced problem is more than a small automated client should throw at the API at once.
+  await mapWithConcurrency(Array.from(folders.entries()), 8, async ([folderPath, entry]) => {
     if (!entry.hasReadme || entry.files.length === 0) return;
     const parts = folderPath.split('/');
     const slug = parts[parts.length - 1];
@@ -606,8 +632,11 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
       shas[f.name] = f.sha;
     });
 
-    const realUpdatedAt = await fetchLastCommitDate(token, hook, folderPath);
     const cached = existingProblems[slug];
+    const [realUpdatedAt, repair] = await Promise.all([
+      fetchLastCommitDate(token, hook, folderPath),
+      scanReadmeForRepair(token, hook, folderPath, entry.readmeSha, cached)
+    ]);
     if (cached) {
       // Known to this browser: retain locally cached title and category metadata, refreshing only file listings and commit timestamps.
       // NOTE: Cached metadata is richer than tree path fragments, while GitHub commit dates prevent timestamp drift.
@@ -615,7 +644,10 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
         ...cached,
         folderPath,
         files,
-        updatedAt: realUpdatedAt || cached.updatedAt || null
+        updatedAt: realUpdatedAt || cached.updatedAt || null,
+        readmeSha: repair.readmeSha,
+        needsRepair: repair.needsRepair,
+        repairReasons: repair.repairReasons
       };
     } else {
       // Unknown to this browser (e.g. fresh install, cleared storage, or different machine).
@@ -627,11 +659,14 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
         codeFileName: entry.files[0].name,
         languages: {},
         files,
-        updatedAt: realUpdatedAt || null
+        updatedAt: realUpdatedAt || null,
+        readmeSha: repair.readmeSha,
+        needsRepair: repair.needsRepair,
+        repairReasons: repair.repairReasons
       };
     }
     reconciledShas[slug] = shas;
-  }));
+  });
 
   const duplicateSlugEntries = Array.from(slugToFolders.entries()).filter(([, folderPaths]) => folderPaths.length > 1);
   const duplicates = await Promise.all(duplicateSlugEntries.map(async ([, folderPaths]) => {
@@ -646,6 +681,10 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
     const newest = groupFolders.reduce((best, f) => ((f.lastModified || 0) > (best.lastModified || 0) ? f : best), groupFolders[0]);
     return { slug: newest.folderPath.split('/').pop(), folders: groupFolders };
   }));
+
+  const needsRepair = Object.entries(reconciledProblems)
+    .filter(([, p]) => p.needsRepair)
+    .map(([slug, p]) => ({ slug, folderPath: p.folderPath, title: p.title || slug, reasons: p.repairReasons || [] }));
 
   const solvedSlugs = Object.keys(reconciledProblems);
   const counts = { solved: solvedSlugs.length, easy: 0, medium: 0, hard: 0 };
@@ -717,7 +756,7 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
   if (unchanged) {
     await safeSetStorage({ stats: reconciledStats, tufhub_code_hashes: purgedHashes });
     await safeSetStorage({ tufhub_last_reconcile_at: Date.now() });
-    return { ok: true, reason: 'unchanged', stats: reconciledStats, duplicates };
+    return { ok: true, reason: 'unchanged', stats: reconciledStats, duplicates, needsRepair };
   }
 
   let uploadResult;
@@ -746,6 +785,7 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
     stats: reconciledStats,
     removedSlugs,
     duplicates,
+    needsRepair,
     commitSha: uploadResult ? uploadResult.commitSha : '',
     commitUrl: uploadResult ? uploadResult.htmlUrl : ''
   };

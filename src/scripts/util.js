@@ -207,3 +207,18 @@ export function debounce(func, wait) {
     timeout = setTimeout(later, wait);
   };
 }
+
+// Runs fn over items with at most `limit` in flight at once, preserving input order in the result.
+// NOTE: A bare Promise.all over dozens of items fires every request at the same instant, which is fine against GitHub's own generous rate limit but is exactly the kind of burst a smaller third-party site (or GitHub's undocumented secondary abuse limits) can react badly to.
+export async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}

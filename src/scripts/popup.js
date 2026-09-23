@@ -1,5 +1,9 @@
 import { scanAndSyncRepoStats } from './tuf/stats.js';
-import { TUF_CONTENT_SCRIPT_URL } from './util.js';
+import { TUF_CONTENT_SCRIPT_URL, decode, mapWithConcurrency } from './util.js';
+import { ghGet } from './tuf/uploader.js';
+import { buildProblemReadme } from './tuf/readme.js';
+import { extractProblemFields } from './tuf/pageExtract.js';
+import { canonicalProblemUrl } from './tuf/repair.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   // Clear toolbar badge when popup opens
@@ -44,6 +48,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const duplicatesBody = document.getElementById('duplicates-body');
   const copyDuplicatesBtn = document.getElementById('copy-duplicates-btn');
   const deleteAllDuplicatesBtn = document.getElementById('delete-all-duplicates-btn');
+
+  // -------------------------------------------------------------
+  // Needs-repair panel (stale TUF link or leftover box-art from before the readme.js fix)
+  // NOTE: Mirrors the duplicates panel above: populated by the same RECONCILE_REPO/DELETE_* responses, shown only when something is actually flagged.
+  // -------------------------------------------------------------
+  const needsRepairSection = document.getElementById('needs-repair-section');
+  const needsRepairSummary = document.getElementById('needs-repair-summary');
+  const needsRepairBody = document.getElementById('needs-repair-body');
+  const repairAllBtn = document.getElementById('repair-all-btn');
 
   let repoHook = ''; // set once auth state loads below, reused in the delete confirm dialog
 
@@ -130,6 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (r.stats) renderStats(r.stats);
             // Re-renders from the post-delete result so resolved duplicate rows disappear immediately.
             renderDuplicates(r.duplicates);
+            renderNeedsRepair(r.needsRepair);
           });
         });
         pathRow.appendChild(deleteBtn);
@@ -197,6 +211,123 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (r.stats) renderStats(r.stats);
         renderDuplicates(r.duplicates);
+        renderNeedsRepair(r.needsRepair);
+      });
+    });
+  }
+
+  const REASON_LABELS = { stale_link: 'dead link', garbled_content: 'old formatting' };
+
+  function renderNeedsRepair(items) {
+    if (!needsRepairSection || !needsRepairBody) return;
+
+    if (!items || !items.length) {
+      needsRepairSection.classList.add('hidden');
+      needsRepairBody.replaceChildren();
+      return;
+    }
+
+    needsRepairSection.classList.remove('hidden');
+    if (needsRepairSummary) {
+      needsRepairSummary.textContent = `${items.length} problem${items.length > 1 ? 's' : ''}`;
+    }
+
+    needsRepairBody.replaceChildren();
+    items.forEach(({ title, folderPath, reasons }) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'margin-bottom: 4px;';
+      const reasonText = (reasons || []).map(r => REASON_LABELS[r] || r).join(', ');
+      row.textContent = `• ${title || folderPath} (${reasonText})`;
+      needsRepairBody.appendChild(row);
+    });
+  }
+
+  // Regenerates one flagged problem's README from its live TUF page.
+  // Returns null when nothing needs to change (content already matches) or the problem cannot be safely repaired (URL doesn't fit the known rewrite rule, the live page 404s, or its title no longer matches, meaning the slug was genuinely renamed rather than just moved). A skipped problem is left flagged and is retried automatically on the next Sync, never silently dropped.
+  async function repairOneProblem(token, hook, item) {
+    const curRes = await ghGet(`https://api.github.com/repos/${hook}/contents/${item.folderPath}/README.md`, token);
+    if (!curRes.ok) return { skipped: true, slug: item.slug, reason: `Could not read current README (HTTP ${curRes.status})` };
+    const currentJson = await curRes.json();
+    const currentContent = decode(currentJson.content);
+
+    const titleMatch = currentContent.match(/^# \[(.*?)\]\((.*?)\)/);
+    const difficultyMatch = currentContent.match(/!\[Difficulty: (.*?)\]/);
+    if (!titleMatch) return { skipped: true, slug: item.slug, reason: 'Could not find a title link in the current README' };
+    const knownTitle = titleMatch[1];
+    const oldUrl = titleMatch[2];
+    const difficulty = difficultyMatch ? difficultyMatch[1] : 'Unspecified';
+
+    const newUrl = canonicalProblemUrl(oldUrl);
+    if (!newUrl) return { skipped: true, slug: item.slug, reason: 'Link did not fit the known rewrite rule' };
+
+    let liveRes;
+    try {
+      liveRes = await fetch(newUrl);
+    } catch (e) {
+      return { skipped: true, slug: item.slug, reason: 'Network error reaching TUF' };
+    }
+    if (!liveRes.ok) return { skipped: true, slug: item.slug, reason: `Rewritten link returned HTTP ${liveRes.status}` };
+
+    const doc = new DOMParser().parseFromString(await liveRes.text(), 'text/html');
+    const fields = extractProblemFields(doc);
+    // A live page returning 200 only proves a page exists there, not that it's the same problem: TUF could have reassigned the slug entirely.
+    if (!fields.title || fields.title.trim().toLowerCase() !== knownTitle.trim().toLowerCase()) {
+      return { skipped: true, slug: item.slug, reason: `Live page title "${fields.title || '(none)'}" did not match expected "${knownTitle}"` };
+    }
+
+    const newContent = buildProblemReadme({ title: fields.title, difficulty, description: fields.description, url: newUrl });
+    if (newContent.trim() === currentContent.trim()) return { skipped: false, changed: false, slug: item.slug };
+
+    return { skipped: false, changed: true, slug: item.slug, path: `${item.folderPath}/README.md`, content: newContent };
+  }
+
+  if (repairAllBtn) {
+    repairAllBtn.addEventListener('click', async () => {
+      const res = await chrome.storage.local.get(['tufhub_last_reconcile_result', 'tufhub_token', 'tufhub_hook']);
+      const items = (res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.needsRepair) || [];
+      if (items.length === 0) return;
+
+      const ok = confirm(
+        `Repair ${items.length} problem${items.length > 1 ? 's' : ''} in ${repoHook || 'your repo'}: rewrite each dead link and regenerate its README from the live TUF page, committed together in one commit?\n\nThis cannot be undone.`
+      );
+      if (!ok) return;
+
+      repairAllBtn.disabled = true;
+      repairAllBtn.textContent = 'Repairing...';
+
+      const token = res.tufhub_token;
+      const hook = res.tufhub_hook;
+      const results = await mapWithConcurrency(items, 4, item => repairOneProblem(token, hook, item));
+      const files = results.filter(r => !r.skipped && r.changed).map(r => ({ path: r.path, content: r.content }));
+      const skipped = results.filter(r => r.skipped);
+
+      // Surfaces the actual reason instead of only a count, so a problem that keeps failing (a genuinely renamed slug, a network hiccup, TUF gating a URL's query string) is debuggable from the popup alone rather than silently retried forever.
+      const reportSkips = () => {
+        if (skipped.length === 0) return;
+        alert(`${skipped.length} problem${skipped.length > 1 ? 's' : ''} could not be repaired:\n\n${skipped.map(r => `${r.slug}: ${r.reason}`).join('\n')}`);
+      };
+
+      if (files.length === 0) {
+        repairAllBtn.disabled = false;
+        repairAllBtn.textContent = skipped.length ? `Repaired 0, ${skipped.length} skipped` : 'Nothing to repair';
+        setTimeout(() => { repairAllBtn.textContent = 'Repair all'; }, 2500);
+        reportSkips();
+        return;
+      }
+
+      chrome.runtime.sendMessage({ type: 'REPAIR_PROBLEMS', files }, (result) => {
+        const r = result || { reason: 'error' };
+        repairAllBtn.disabled = false;
+        if (r.ok === false) {
+          repairAllBtn.textContent = 'Repair failed: retry';
+          return;
+        }
+        repairAllBtn.textContent = skipped.length ? `Repaired ${files.length}, ${skipped.length} skipped` : `Repaired ${files.length}`;
+        setTimeout(() => { repairAllBtn.textContent = 'Repair all'; }, 2500);
+        if (r.stats) renderStats(r.stats);
+        if ('duplicates' in r) renderDuplicates(r.duplicates);
+        if ('needsRepair' in r) renderNeedsRepair(r.needsRepair);
+        reportSkips();
       });
     });
   }
@@ -267,6 +398,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       renderStats(res.stats);
       renderDuplicates(res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.duplicates);
+      renderNeedsRepair(res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.needsRepair);
 
       let latestStats = res.stats;
       // Auto-sync existing repo stats if 0 solved or missing
@@ -317,7 +449,9 @@ document.addEventListener('DOMContentLoaded', () => {
       chrome.runtime.sendMessage({ type: 'RECONCILE_REPO' }, (result) => {
         const r = result || { reason: 'error' };
         if (r.stats) renderStats(r.stats);
-        renderDuplicates(r.duplicates);
+        // A cooldown response carries no duplicates/needsRepair at all (nothing was actually re-checked), so it must leave whatever is already shown alone rather than blanking a panel that's still accurate.
+        if ('duplicates' in r) renderDuplicates(r.duplicates);
+        if ('needsRepair' in r) renderNeedsRepair(r.needsRepair);
 
         const label = (SYNC_REASON_LABELS[r.reason] || SYNC_REASON_LABELS.error)(r);
         syncRepoBtn.innerText = label;

@@ -4,7 +4,7 @@
  */
 
 import { reconcileRepoFromTree } from './tuf/stats.js';
-import { deleteFiles } from './tuf/uploader.js';
+import { commitFiles, deleteFiles } from './tuf/uploader.js';
 import { enqueueGitHubWrite } from './tuf/writeQueue.js';
 import { acceptSyncJob, applyBadgeState, drainSyncQueue, SYNC_RETRY_ALARM } from './tuf/syncQueue.js';
 import { TUF_CONTENT_SCRIPT_URL } from './util.js';
@@ -189,7 +189,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], (res) => {
       enqueueGitHubWrite(() => reconcileRepoFromTree(res.tufhub_token, res.tufhub_hook))
         .then((result) => {
-          chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          // A cooldown response carries no duplicates/needsRepair (nothing was actually re-checked), so it must never overwrite the last real result still sitting in storage.
+          if (result.reason !== 'cooldown') chrome.storage.local.set({ tufhub_last_reconcile_result: result });
           sendResponse(result);
         })
         .catch((err) => {
@@ -268,6 +269,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               .map(d => ({ ...d, folders: (d.folders || []).filter(f => !deletedFolderPaths.includes(f.folderPath)) }))
               .filter(d => (d.folders || []).length > 1)
           };
+        }
+        return result;
+      })
+        .then((result) => {
+          chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          sendResponse(result);
+        })
+        .catch((err) => {
+          sendResponse({ ok: false, reason: 'error', message: err && err.message });
+        });
+    });
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.type === 'REPAIR_PROBLEMS') {
+    // NOTE: The fetch, DOM-parse, and README regeneration for each flagged problem already happened in popup.js (a real page with a real DOMParser; this service worker has none). This handler only commits the finished file contents, same division of labor as every other write path.
+    chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], (res) => {
+      const token = res.tufhub_token;
+      const hook = res.tufhub_hook;
+      const files = request.files || [];
+      if (files.length === 0) {
+        sendResponse({ ok: false, reason: 'error', message: 'No repaired files to commit.' });
+        return;
+      }
+      const repairedFolders = files.map(f => f.path.replace(/\/README\.md$/, ''));
+
+      enqueueGitHubWrite(async () => {
+        await commitFiles(token, hook, files, `Repair ${files.length} problem README(s): fix dead TUF links and regenerate content (TUFHub)`);
+        let result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
+        // Retries once if the tree-read briefly lags the commit that just landed on GitHub.
+        const stillFlagged = (result.needsRepair || []).some(item => repairedFolders.includes(item.folderPath));
+        if (stillFlagged) {
+          await new Promise(r => setTimeout(r, 1500));
+          result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
         }
         return result;
       })
