@@ -379,8 +379,10 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
                   languages[ext] = primaryCodeFileName;
                 }
 
-                // Preserve prior updatedAt timestamp from local cache so metadata scans do not falsely mark all problems as synced today.
-                // Renders as null (hyphen) when unknown, which accurately indicates historical status.
+                // Preserve prior updatedAt timestamp from local cache or parse the authentic date from the README table.
+                // Renders as null (hyphen) only when unknown, which accurately indicates historical status.
+                const dateCol = cols[5] ? cols[5].replace(/[`\s]/g, '') : '';
+                const parsedDate = (dateCol && dateCol !== '-') ? new Date(dateCol).getTime() : null;
                 const priorUpdatedAt = stats.problems[slug] ? stats.problems[slug].updatedAt : null;
                 stats.problems[slug] = {
                   title,
@@ -391,7 +393,7 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
                   codeFileName: primaryCodeFileName,
                   languages,
                   files,
-                  updatedAt: priorUpdatedAt || null
+                  updatedAt: priorUpdatedAt || parsedDate || null
                 };
               }
             }
@@ -500,16 +502,21 @@ async function fetchLastCommitDate(token, hook, path) {
  * Non-fatal on failure: falls back to the last known verdict for this slug, same as fetchLastCommitDate, so one bad fetch cannot break reconcile for every other problem.
  */
 async function scanReadmeForRepair(token, hook, folderPath, readmeSha, cached) {
-  if (cached && cached.readmeSha === readmeSha) {
-    return { readmeSha, needsRepair: !!cached.needsRepair, repairReasons: cached.repairReasons || [] };
+  const isUnspecified = cached && (
+    (cached.difficulty || '').toLowerCase() === 'unspecified' ||
+    cached.difficulty === '⚪ Unspecified'
+  );
+
+  if (cached && cached.readmeSha === readmeSha && !isUnspecified && !cached.needsRepair) {
+    return { readmeSha, needsRepair: false, repairReasons: [] };
   }
   try {
     const res = await ghGet(`https://api.github.com/repos/${hook}/contents/${folderPath}/README.md`, token);
     if (!res.ok) return { readmeSha, needsRepair: false, repairReasons: [] };
     const json = await res.json();
     const content = decode(json.content);
-    const { needsRepair, reasons } = detectReadmeIssues(content);
-    return { readmeSha, needsRepair, repairReasons: reasons };
+    const { needsRepair, reasons, badgeDifficulty } = detectReadmeIssues(content, cached);
+    return { readmeSha, needsRepair, repairReasons: reasons, badgeDifficulty };
   } catch (e) {
     return cached
       ? { readmeSha: cached.readmeSha, needsRepair: !!cached.needsRepair, repairReasons: cached.repairReasons || [] }
@@ -633,15 +640,24 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
     });
 
     const cached = existingProblems[slug];
+    // Query last commit on the solution code file rather than the directory.
+    // NOTE: A folder-level query bumps timestamps whenever README metadata or difficulty tags are repaired.
+    // Querying the code file preserves authentic solution timestamps across all documentation fixes.
+    const primaryCodePath = (entry.files && entry.files[0]) ? `${folderPath}/${entry.files[0].name}` : folderPath;
     const [realUpdatedAt, repair] = await Promise.all([
-      fetchLastCommitDate(token, hook, folderPath),
+      fetchLastCommitDate(token, hook, primaryCodePath),
       scanReadmeForRepair(token, hook, folderPath, entry.readmeSha, cached)
     ]);
     if (cached) {
       // Known to this browser: retain locally cached title and category metadata, refreshing only file listings and commit timestamps.
       // NOTE: Cached metadata is richer than tree path fragments, while GitHub commit dates prevent timestamp drift.
+      let resolvedDiff = cached.difficulty;
+      if (repair.badgeDifficulty && repair.badgeDifficulty.toLowerCase() !== 'unspecified') {
+        resolvedDiff = repair.badgeDifficulty;
+      }
       reconciledProblems[slug] = {
         ...cached,
+        difficulty: resolvedDiff,
         folderPath,
         files,
         updatedAt: realUpdatedAt || cached.updatedAt || null,
@@ -652,9 +668,13 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
     } else {
       // Unknown to this browser (e.g. fresh install, cleared storage, or different machine).
       // NOTE: Uses placeholder metadata derived from path structure to avoid an expensive API call per unknown problem folder.
+      let resolvedDiff = 'Medium';
+      if (repair.badgeDifficulty && repair.badgeDifficulty.toLowerCase() !== 'unspecified') {
+        resolvedDiff = repair.badgeDifficulty;
+      }
       reconciledProblems[slug] = {
         title: slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-        difficulty: 'Medium',
+        difficulty: resolvedDiff,
         folderPath,
         codeFileName: entry.files[0].name,
         languages: {},
@@ -675,7 +695,7 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
       const paths = entry.files.map(f => `${folderPath}/${f.name}`);
       if (entry.hasReadme) paths.push(`${folderPath}/README.md`);
       const lastModified = await fetchLastCommitDate(token, hook, folderPath);
-      return { folderPath, files: paths, lastModified };
+      return { folderPath, files: paths, fileDetails: entry.files || [], lastModified };
     }));
     // The popup labels a group by its newest folder's own name, since grouped folders can carry different names.
     const newest = groupFolders.reduce((best, f) => ((f.lastModified || 0) > (best.lastModified || 0) ? f : best), groupFolders[0]);

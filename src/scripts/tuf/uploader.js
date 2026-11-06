@@ -213,6 +213,39 @@ export async function deleteFiles(token, hook, paths, commitMessage, retries = 5
   return commitTreeEntries(token, hook, treeEntries, commitMessage, retries);
 }
 
+/**
+ * Copies blobs to new paths and deletes stale paths in a single atomic git commit.
+ * moves is an array of objects containing targetPath, sha, and optional mode.
+ * deletes is an array of file path strings to delete using sha null.
+ */
+export async function mergeAndPruneFolders(token, hook, { moves = [], deletes = [] }, commitMessage, retries = 5) {
+  const treeEntries = [];
+
+  moves.forEach(m => {
+    treeEntries.push({
+      path: m.targetPath,
+      mode: m.mode || '100644',
+      type: 'blob',
+      sha: m.sha
+    });
+  });
+
+  deletes.forEach(p => {
+    treeEntries.push({
+      path: p,
+      mode: '100644',
+      type: 'blob',
+      sha: null
+    });
+  });
+
+  if (treeEntries.length === 0) {
+    return null;
+  }
+
+  return commitTreeEntries(token, hook, treeEntries, commitMessage, retries);
+}
+
 export async function uploadToGitHub(token, hook, path, content, commitMessage, sha = '', retries = 3) {
   const url = `https://api.github.com/repos/${hook}/contents/${path}`;
   let currentSha = sha;

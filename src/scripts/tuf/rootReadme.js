@@ -5,6 +5,7 @@
 
 import { decode, normalizeReadmeForCompare, classifyDifficulty, hasToken } from '../util.js';
 import { ghGet } from './uploader.js';
+import { canonicalizeTopicLabel } from './router.js';
 
 /**
  * Builds root README file payload.
@@ -159,14 +160,14 @@ function resolveTopic(p) {
     const cleanCand = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
     const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (cleanCand !== cleanSlug && !cleanSlug.includes(cleanCand) && !cleanCand.includes(cleanSlug)) {
-      topicName = candidate;
+      topicName = canonicalizeTopicLabel(candidate);
     }
   } else if (p.mainTopic && p.mainTopic !== catName) {
     const candidate = p.mainTopic.includes('/') ? p.mainTopic.split('/').pop() : p.mainTopic;
     const cleanCand = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
     const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9]/g, '');
     if (cleanCand !== cleanSlug && !cleanSlug.includes(cleanCand) && !cleanCand.includes(cleanSlug)) {
-      topicName = candidate;
+      topicName = canonicalizeTopicLabel(candidate);
     }
   }
 

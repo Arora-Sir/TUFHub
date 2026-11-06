@@ -68,8 +68,21 @@
         <button id="repair-announce-close-btn" type="button" class="milestone-close-btn" aria-label="Dismiss">&times;</button>
       </div>
 
+      <!-- Unified Resolve All Action (when both duplicates and repairs exist) -->
+      <div id="resolve-all-banner" class="card hidden" style="background: rgba(249, 115, 22, 0.08); border: 1px solid rgba(249, 115, 22, 0.3); padding: 10px 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <div style="min-width: 0; flex: 1;">
+            <div style="font-weight: 600; font-size: 12px; color: #f97316;">⚡ Repository Cleanup</div>
+            <div id="resolve-all-summary" style="font-size: 11px; opacity: 0.8; margin-top: 2px;"></div>
+          </div>
+          <button id="resolve-all-btn" class="profile-cta secondary-btn merge-highlight-btn" style="width: auto !important; padding: 5px 10px; font-size: 11px; white-space: nowrap;">
+            Fix &amp; Merge All
+          </button>
+        </div>
+      </div>
+
       <!-- Duplicate Problem Folders Warning -->
-      <details id="duplicates-section" class="card hidden" style="margin-top: 10px;">
+      <details id="duplicates-section" class="card hidden">
         <summary style="cursor: pointer; font-weight: 600; font-size: 12px; display: flex; align-items: center; gap: 7px; list-style: none;">
           <span style="width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; flex: 0 0 auto;"></span>
           <span>Duplicates</span>
@@ -77,16 +90,24 @@
           <span aria-hidden="true" style="opacity: 0.5; font-size: 10px;">&#9662;</span>
         </summary>
         <div id="duplicates-body" style="margin-top: 10px; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; word-break: break-word;"></div>
-        <button id="copy-duplicates-btn" class="profile-cta secondary-btn" style="width: 100%; margin-top: 10px; padding: 6px 8px; font-size: 11px;">
-          Copy list
-        </button>
-        <button id="delete-all-duplicates-btn" class="profile-cta danger-btn" style="width: 100%; margin-top: 6px; padding: 6px 8px; font-size: 11px;">
-          Delete all duplicates
-        </button>
+        <div id="dup-actions-grid" class="dup-actions-grid">
+          <button id="copy-merge-btn" class="profile-cta secondary-btn dup-grid-btn" title="Copy Git commands to merge and prune folders locally">
+            📋 Copy Merge
+          </button>
+          <button id="merge-all-duplicates-btn" class="profile-cta secondary-btn dup-grid-btn merge-highlight-btn" title="Merge all duplicates into newest copy in GitHub">
+            Merge all (keep ★)
+          </button>
+          <button id="copy-duplicates-btn" class="profile-cta secondary-btn dup-grid-btn" title="Copy Git rm commands to delete stale folders locally">
+            📋 Copy Delete
+          </button>
+          <button id="delete-all-duplicates-btn" class="profile-cta danger-btn dup-grid-btn" title="Delete all stale duplicate folders via GitHub API">
+            Delete all dups
+          </button>
+        </div>
       </details>
 
       <!-- Problems Needing Repair (stale TUF link, or leftover box-art from before the readme.js fix) -->
-      <details id="needs-repair-section" class="card hidden" style="margin-top: 10px;">
+      <details id="needs-repair-section" class="card hidden">
         <summary style="cursor: pointer; font-weight: 600; font-size: 12px; display: flex; align-items: center; gap: 7px; list-style: none;">
           <span style="width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; flex: 0 0 auto;"></span>
           <span>Needs repair</span>
@@ -100,7 +121,7 @@
       </details>
 
       <!-- Sync Health Diagnostics -->
-      <details id="health-section" class="card" style="margin-top: 10px;">
+      <details id="health-section" class="card">
         <summary style="cursor: pointer; font-weight: 600; font-size: 12px; display: flex; align-items: center; gap: 7px; list-style: none;">
           <span id="health-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #6b7280; flex: 0 0 auto;"></span>
           <span>Sync Health</span>
@@ -149,7 +170,7 @@
             ☕ Pay via PayPal
           </a>
           <p class="upi-divider">or scan to pay via UPI</p>
-          <img src="assets/upi_qr.png" alt="UPI QR Code" class="upi-qr-img" onerror="this.style.display='none'">
+          <img id="upi-qr-img" src="assets/upi_qr.png" alt="UPI QR Code" class="upi-qr-img">
           <div class="upi-id-copy">
             <code>mohit1998arora@yescred</code>
             <button id="copy-upi-btn" class="copy-chip">Copy</button>

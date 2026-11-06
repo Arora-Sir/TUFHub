@@ -1,5 +1,5 @@
 import { scanAndSyncRepoStats } from './tuf/stats.js';
-import { TUF_CONTENT_SCRIPT_URL, decode, mapWithConcurrency } from './util.js';
+import { TUF_CONTENT_SCRIPT_URL, decode, mapWithConcurrency, classifyDifficulty } from './util.js';
 import { ghGet } from './tuf/uploader.js';
 import { buildProblemReadme } from './tuf/readme.js';
 import { extractProblemFields } from './tuf/pageExtract.js';
@@ -40,6 +40,27 @@ document.addEventListener('DOMContentLoaded', () => {
     statHard.innerText = stats.hard || 0;
   }
 
+  // Unified Resolve All Action: visible when both duplicates and repair issues exist.
+  const resolveAllBanner = document.getElementById('resolve-all-banner');
+  const resolveAllSummary = document.getElementById('resolve-all-summary');
+  const resolveAllBtn = document.getElementById('resolve-all-btn');
+  let currentDuplicates = [];
+  let currentNeedsRepair = [];
+
+  function updateResolveAllBanner() {
+    if (!resolveAllBanner) return;
+    const dupCount = currentDuplicates ? currentDuplicates.length : 0;
+    const repairCount = currentNeedsRepair ? currentNeedsRepair.length : 0;
+    if (dupCount > 0 && repairCount > 0) {
+      resolveAllBanner.classList.remove('hidden');
+      if (resolveAllSummary) {
+        resolveAllSummary.textContent = `${dupCount} duplicate${dupCount > 1 ? 's' : ''} · ${repairCount} need${repairCount === 1 ? 's' : ''} repair`;
+      }
+    } else {
+      resolveAllBanner.classList.add('hidden');
+    }
+  }
+
   // -------------------------------------------------------------
   // Duplicate problem folders panel
   // NOTE: Surfaces duplicate repo folders left behind after problem re-categorization.
@@ -48,7 +69,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const duplicatesSection = document.getElementById('duplicates-section');
   const duplicatesSummary = document.getElementById('duplicates-summary');
   const duplicatesBody = document.getElementById('duplicates-body');
+  const copyMergeBtn = document.getElementById('copy-merge-btn');
   const copyDuplicatesBtn = document.getElementById('copy-duplicates-btn');
+  const mergeAllDuplicatesBtn = document.getElementById('merge-all-duplicates-btn');
   const deleteAllDuplicatesBtn = document.getElementById('delete-all-duplicates-btn');
 
   // -------------------------------------------------------------
@@ -80,7 +103,44 @@ document.addEventListener('DOMContentLoaded', () => {
     return (folder.files || []).map(nameOf).filter(name => name !== 'README.md' && !elsewhere.has(name));
   }
 
+  function computeMergePlan(folders) {
+    const sorted = sortNewestFirst(folders);
+    const target = sorted[0];
+    const targetFolder = target.folderPath;
+    const stale = sorted.slice(1);
+
+    const targetFileNames = new Set((target.files || []).map(p => p.split('/').pop()));
+    const moves = [];
+    const deletes = [];
+
+    stale.forEach(staleFolder => {
+      (staleFolder.files || []).forEach(filePath => {
+        deletes.push(filePath);
+        const fileName = filePath.split('/').pop();
+        if (fileName && fileName !== 'README.md' && !targetFileNames.has(fileName)) {
+          const detail = (staleFolder.fileDetails || []).find(d => d.name === fileName);
+          if (detail && detail.sha) {
+            moves.push({
+              targetPath: `${targetFolder}/${fileName}`,
+              sha: detail.sha
+            });
+            targetFileNames.add(fileName);
+          }
+        }
+      });
+    });
+
+    return {
+      canonicalFolder: targetFolder,
+      moves,
+      deletes,
+      deletedFolderPaths: stale.map(s => s.folderPath)
+    };
+  }
+
   function renderDuplicates(duplicates) {
+    currentDuplicates = duplicates || [];
+    updateResolveAllBanner();
     if (!duplicatesSection || !duplicatesBody) return;
 
     if (!duplicates || !duplicates.length) {
@@ -97,60 +157,138 @@ document.addEventListener('DOMContentLoaded', () => {
     duplicatesBody.replaceChildren();
     duplicates.forEach(({ slug, folders }) => {
       const entry = document.createElement('div');
-      entry.style.cssText = 'margin-bottom: 10px;';
+      entry.style.cssText = 'margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);';
 
-      const title = document.createElement('div');
-      title.style.cssText = 'font-weight: 600; margin-bottom: 3px;';
-      title.textContent = slug;
-      entry.appendChild(title);
+      // Header row: Problem title link and Casing Mismatch badge
+      const headerRow = document.createElement('div');
+      headerRow.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;';
+
+      const track = (folders.some(f => (f.folderPath || '').startsWith('SQL/')) ? 'sql' :
+                    (folders.some(f => (f.folderPath || '').startsWith('Design/')) ? 'design' : 'dsa'));
+      const tufProblemUrl = `https://takeuforward.org/practice/${track}/${slug}`;
+
+      const titleLink = document.createElement('a');
+      titleLink.href = tufProblemUrl;
+      titleLink.target = '_blank';
+      titleLink.rel = 'noopener noreferrer';
+      titleLink.style.cssText = 'font-weight: 600; color: #f97316; font-size: 12px; text-decoration: none;';
+      titleLink.title = 'Open problem on TakeUForward';
+      titleLink.textContent = slug;
+      titleLink.addEventListener('mouseenter', () => { titleLink.style.textDecoration = 'underline'; });
+      titleLink.addEventListener('mouseleave', () => { titleLink.style.textDecoration = 'none'; });
+      headerRow.appendChild(titleLink);
+
+      const isCasingOnly = folders.length > 1 && new Set(folders.map(f => (f.folderPath || '').toLowerCase())).size === 1;
+      if (isCasingOnly) {
+        const casingBadge = document.createElement('span');
+        casingBadge.style.cssText = 'font-size: 10px; padding: 1px 5px; border-radius: 4px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-weight: 500;';
+        casingBadge.textContent = 'Casing Mismatch';
+        headerRow.appendChild(casingBadge);
+      }
+
+      entry.appendChild(headerRow);
 
       // Newest commit first: the newer folder reflects current categorization, while older copies predate it.
       const sortedFolders = sortNewestFirst(folders);
 
       sortedFolders.forEach(({ folderPath, files, lastModified }, i) => {
-        const pathRow = document.createElement('div');
-        pathRow.style.cssText = 'display: flex; gap: 6px; align-items: center; padding-left: 6px; margin-top: 2px;';
+        const folderBlock = document.createElement('div');
+        folderBlock.style.cssText = 'margin-top: 4px; padding-left: 6px;';
 
-        const pathLine = document.createElement('span');
+        const pathLine = document.createElement('div');
         const isNewest = i === 0 && lastModified != null;
-        pathLine.style.cssText = `flex: 1; min-width: 0; overflow-wrap: anywhere; word-break: break-word; ${isNewest ? 'color: #22c55e;' : 'opacity: 0.8;'}`;
+        pathLine.style.cssText = `font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; word-break: break-word; ${isNewest ? 'color: #22c55e;' : 'opacity: 0.8;'}`;
         let label = `• ${folderPath}`;
         if (folderPath.includes('/General/')) label += ' (old default bucket)';
         if (lastModified != null) label += ` (${timeAgo(lastModified)})`;
         if (isNewest) label += ' ★ newest';
-        pathLine.textContent = label;
-        pathRow.appendChild(pathLine);
 
-        const deleteBtn = document.createElement('button');
-        deleteBtn.type = 'button';
-        deleteBtn.className = 'profile-cta danger-btn';
-        deleteBtn.style.cssText = 'flex: 0 0 auto; padding: 2px 8px; font-size: 10px;';
-        deleteBtn.textContent = 'Delete';
-        deleteBtn.addEventListener('click', () => {
-          const onlyHere = filesOnlyIn({ files }, sortedFolders.filter(f => f.folderPath !== folderPath));
-          const uniqueNote = onlyHere.length ? `\n\nOnly in this folder (not in the other copies): ${onlyHere.join(', ')}` : '';
-          const ok = confirm(`Delete "${folderPath}" and all its files from ${repoHook || 'your repo'}?${uniqueNote}\n\nThis cannot be undone.`);
-          if (!ok) return;
+        if (repoHook) {
+          const ghLink = document.createElement('a');
+          ghLink.href = `https://github.com/${repoHook}/tree/main/${folderPath}`;
+          ghLink.target = '_blank';
+          ghLink.rel = 'noopener noreferrer';
+          ghLink.style.cssText = 'color: inherit; text-decoration: none;';
+          ghLink.title = 'Open folder on GitHub';
+          ghLink.textContent = label;
+          ghLink.addEventListener('mouseenter', () => { ghLink.style.textDecoration = 'underline'; });
+          ghLink.addEventListener('mouseleave', () => { ghLink.style.textDecoration = 'none'; });
+          pathLine.appendChild(ghLink);
+        } else {
+          pathLine.textContent = label;
+        }
+        folderBlock.appendChild(pathLine);
 
-          deleteBtn.disabled = true;
-          deleteBtn.textContent = 'Deleting...';
+        if (!isNewest) {
+          const actionRow = document.createElement('div');
+          actionRow.className = 'dup-row-actions';
 
-          chrome.runtime.sendMessage({ type: 'DELETE_REPO_FOLDER', folderPath, paths: files }, (result) => {
-            const r = result || { reason: 'error' };
-            if (r.ok === false) {
-              deleteBtn.disabled = false;
-              deleteBtn.textContent = 'Delete failed: retry';
-              return;
-            }
-            if (r.stats) renderStats(r.stats);
-            // Re-renders from the post-delete result so resolved duplicate rows disappear immediately.
-            renderDuplicates(r.duplicates);
-            renderNeedsRepair(r.needsRepair);
+          const mergeBtn = document.createElement('button');
+          mergeBtn.type = 'button';
+          mergeBtn.className = 'profile-cta secondary-btn dup-action-chip merge-highlight-btn';
+          mergeBtn.textContent = isCasingOnly ? 'Merge into ★' : 'Merge';
+          mergeBtn.title = 'Merge duplicate folder into newest copy and keep unique files';
+          mergeBtn.addEventListener('click', () => {
+            const plan = computeMergePlan(folders);
+            const ok = confirm(`Merge duplicate folder "${folderPath}" into "${plan.canonicalFolder}"? Any unique files will be preserved.\n\nThis cannot be undone.`);
+            if (!ok) return;
+
+            mergeBtn.disabled = true;
+            mergeBtn.textContent = 'Merging...';
+
+            chrome.runtime.sendMessage({
+              type: 'MERGE_DUPLICATE_FOLDERS',
+              ...plan,
+              commitMessage: `Merge duplicate folder for ${slug} into ${plan.canonicalFolder} (TUFHub)`
+            }, (result) => {
+              const r = result || { reason: 'error' };
+              if (r.ok === false) {
+                mergeBtn.disabled = false;
+                mergeBtn.textContent = 'Retry';
+                return;
+              }
+              if (r.stats) renderStats(r.stats);
+              renderDuplicates(r.duplicates);
+              renderNeedsRepair(r.needsRepair);
+            });
           });
-        });
-        pathRow.appendChild(deleteBtn);
+          actionRow.appendChild(mergeBtn);
 
-        entry.appendChild(pathRow);
+          // For casing-only duplicates, omit Delete to prevent accidental loss of unique files.
+          if (!isCasingOnly) {
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'profile-cta danger-btn dup-action-chip';
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.addEventListener('click', () => {
+              const onlyHere = filesOnlyIn({ files }, sortedFolders.filter(f => f.folderPath !== folderPath));
+              const uniqueNote = onlyHere.length ? `\n\nOnly in this folder (not in the other copies): ${onlyHere.join(', ')}` : '';
+              const ok = confirm(`Delete "${folderPath}" and all its files from ${repoHook || 'your repo'}?${uniqueNote}\n\nThis cannot be undone.`);
+              if (!ok) return;
+
+              deleteBtn.disabled = true;
+              deleteBtn.textContent = 'Deleting...';
+
+              chrome.runtime.sendMessage({ type: 'DELETE_REPO_FOLDER', folderPath, paths: files }, (result) => {
+                const r = result || { reason: 'error' };
+                if (r.ok === false) {
+                  deleteBtn.disabled = false;
+                  deleteBtn.textContent = 'Retry';
+                  return;
+                }
+                if (r.stats) renderStats(r.stats);
+                // Re-renders from the post-delete result so resolved duplicate rows disappear immediately.
+                renderDuplicates(r.duplicates);
+                renderNeedsRepair(r.needsRepair);
+              });
+            });
+            actionRow.appendChild(deleteBtn);
+          }
+
+          folderBlock.appendChild(actionRow);
+        }
+
+        entry.appendChild(folderBlock);
       });
 
       duplicatesBody.appendChild(entry);
@@ -158,21 +296,99 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const hint = document.createElement('div');
     hint.style.cssText = 'margin-top: 4px; padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, 0.1); opacity: 0.65;';
-    hint.textContent = 'Newest copy (green, ★) is usually the correct one to keep; delete the rest.';
+    hint.textContent = 'Newest copy (green, ★) is usually the correct one to keep; merge or delete the rest.';
     duplicatesBody.appendChild(hint);
+  }
+
+  if (copyMergeBtn) {
+    copyMergeBtn.addEventListener('click', async () => {
+      const res = await chrome.storage.local.get(['tufhub_last_reconcile_result']);
+      const duplicates = (res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.duplicates) || [];
+      if (!duplicates.length) return;
+
+      const lines = [];
+      duplicates.forEach(({ slug, folders }) => {
+        const plan = computeMergePlan(folders);
+        lines.push(`# Merge duplicates for: ${slug}`);
+        if (plan.moves.length > 0) {
+          plan.moves.forEach(m => {
+            lines.push(`git mv "${m.from}" "${m.to}"`);
+          });
+        }
+        plan.deletedFolderPaths.forEach(dfp => {
+          lines.push(`git rm -r -f "${dfp}"`);
+        });
+      });
+
+      await navigator.clipboard.writeText(lines.join('\n'));
+      copyMergeBtn.innerText = 'Copied!';
+      setTimeout(() => { copyMergeBtn.innerText = '📋 Copy Merge'; }, 2000);
+    });
   }
 
   if (copyDuplicatesBtn) {
     copyDuplicatesBtn.addEventListener('click', async () => {
       const res = await chrome.storage.local.get(['tufhub_last_reconcile_result']);
       const duplicates = (res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.duplicates) || [];
-      const lines = duplicates.flatMap(({ slug, folders }) => [
-        slug,
-        ...(folders || []).map(({ folderPath }) => `  git rm -r "${folderPath}"`)
-      ]);
+      const lines = duplicates.flatMap(({ slug, folders }) => {
+        const sorted = sortNewestFirst(folders || []);
+        const stale = sorted.slice(1);
+        return [
+          `# Delete stale copies for: ${slug}`,
+          ...stale.map(({ folderPath }) => `git rm -r -f "${folderPath}"`)
+        ];
+      });
       await navigator.clipboard.writeText(lines.join('\n'));
       copyDuplicatesBtn.innerText = 'Copied!';
-      setTimeout(() => { copyDuplicatesBtn.innerText = 'Copy list'; }, 2000);
+      setTimeout(() => { copyDuplicatesBtn.innerText = '📋 Copy Delete'; }, 2000);
+    });
+  }
+
+  if (mergeAllDuplicatesBtn) {
+    mergeAllDuplicatesBtn.addEventListener('click', async () => {
+      const res = await chrome.storage.local.get(['tufhub_last_reconcile_result']);
+      const duplicates = (res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.duplicates) || [];
+      if (duplicates.length === 0) return;
+
+      const allMoves = [];
+      const allDeletes = [];
+      const allDeletedFolderPaths = [];
+
+      duplicates.forEach(({ folders }) => {
+        const plan = computeMergePlan(folders);
+        allMoves.push(...plan.moves);
+        allDeletes.push(...plan.deletes);
+        allDeletedFolderPaths.push(...plan.deletedFolderPaths);
+      });
+
+      if (allDeletes.length === 0) return;
+
+      const ok = confirm(
+        `Merge duplicate folders across ${duplicates.length} problem(s) into their newest (★) folders? All unique files will be preserved.\n\nThis cannot be undone.`
+      );
+      if (!ok) return;
+
+      mergeAllDuplicatesBtn.disabled = true;
+      mergeAllDuplicatesBtn.textContent = 'Merging...';
+
+      chrome.runtime.sendMessage({
+        type: 'MERGE_DUPLICATE_FOLDERS',
+        moves: allMoves,
+        deletes: allDeletes,
+        deletedFolderPaths: allDeletedFolderPaths,
+        commitMessage: 'Merge all duplicate folders into canonical directories (TUFHub)'
+      }, (result) => {
+        const r = result || { reason: 'error' };
+        mergeAllDuplicatesBtn.disabled = false;
+        mergeAllDuplicatesBtn.textContent = 'Merge all into newest (keep ★)';
+        if (r.ok === false) {
+          alert(`Merge failed: ${r.message || 'Unknown error'}`);
+          return;
+        }
+        if (r.stats) renderStats(r.stats);
+        renderDuplicates(r.duplicates);
+        renderNeedsRepair(r.needsRepair);
+      });
     });
   }
 
@@ -218,9 +434,79 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  const REASON_LABELS = { stale_link: 'dead link', garbled_content: 'old formatting' };
+  const REASON_LABELS = {
+    stale_link: 'dead link',
+    garbled_content: 'old formatting',
+    unspecified_difficulty: 'unspecified difficulty'
+  };
+
+  function updateDifficultyBadgeInReadme(content, difficulty) {
+    const bucket = classifyDifficulty(difficulty);
+    const badgeColor = bucket === 'easy' ? '22c55e' : bucket === 'hard' ? 'ef4444' : bucket === 'unspecified' ? '6b7280' : 'eab308';
+    const newBadge = `![Difficulty: ${difficulty}](https://img.shields.io/badge/Difficulty-${difficulty}-${badgeColor}?style=for-the-badge)`;
+    if (/!\[Difficulty: .*?\]\(.*?\)/.test(content)) {
+      return content.replace(/!\[Difficulty: .*?\]\(.*?\)/, newBadge);
+    }
+    const lines = (content || '').split('\n');
+    if (lines.length > 0 && lines[0].startsWith('# ')) {
+      lines.splice(1, 0, '', newBadge);
+      return lines.join('\n');
+    }
+    return `${newBadge}\n\n${content}`;
+  }
+
+  async function findTakeUForwardTab() {
+    try {
+      const tabs = await chrome.tabs.query({});
+      return tabs.find(t => t.id && t.url && t.url.includes('takeuforward.org'));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function fetchDifficultiesInBatch(slugs) {
+    if (!slugs || slugs.length === 0) return {};
+    const targetTab = await findTakeUForwardTab();
+    if (!targetTab) return {};
+
+    const out = {};
+    try {
+      const [execResult] = await chrome.scripting.executeScript({
+        target: { tabId: targetTab.id },
+        func: async (problemSlugs) => {
+          const results = {};
+          for (const s of problemSlugs) {
+            try {
+              const res = await fetch(`https://backend-go.takeuforward.org/api/v2/plus/problem/${s}`, { credentials: 'include' });
+              if (res.ok) {
+                const json = await res.json();
+                const diff = (json && json.data && json.data.difficulty) || (json && json.difficulty) || '';
+                if (diff && diff !== 'Subscribe to TUF+') {
+                  results[s] = diff === 'Basic' ? 'Easy' : diff;
+                }
+              }
+            } catch (err) {}
+          }
+          return results;
+        },
+        args: [slugs]
+      });
+      if (execResult && execResult.result) {
+        Object.assign(out, execResult.result);
+      }
+    } catch (e) {}
+
+    return out;
+  }
+
+  async function fetchDifficultyFromTuf(slug) {
+    const batchRes = await fetchDifficultiesInBatch([slug]);
+    return batchRes[slug] || '';
+  }
 
   function renderNeedsRepair(items) {
+    currentNeedsRepair = items || [];
+    updateResolveAllBanner();
     if (!needsRepairSection || !needsRepairBody) return;
 
     if (!items || !items.length) {
@@ -235,18 +521,50 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     needsRepairBody.replaceChildren();
-    items.forEach(({ title, folderPath, reasons }) => {
+    items.forEach(({ title, folderPath, slug, reasons }) => {
       const row = document.createElement('div');
-      row.style.cssText = 'margin-bottom: 4px;';
+      row.className = 'repair-row';
+
+      const leftCol = document.createElement('div');
+      leftCol.style.cssText = 'display: flex; align-items: center; gap: 5px; min-width: 0; flex: 1;';
+
+      const bullet = document.createElement('span');
+      bullet.textContent = '•';
+      bullet.style.opacity = '0.6';
+      leftCol.appendChild(bullet);
+
+      const titleLink = document.createElement('a');
+      titleLink.className = 'repair-title-link';
+      titleLink.textContent = title || folderPath;
+      if (repoHook && folderPath) {
+        titleLink.href = `https://github.com/${repoHook}/tree/main/${folderPath}`;
+        titleLink.target = '_blank';
+        titleLink.rel = 'noopener noreferrer';
+        titleLink.title = 'View in GitHub';
+      } else {
+        const track = (folderPath && folderPath.startsWith('SQL/')) ? 'sql' :
+                      (folderPath && folderPath.startsWith('Design/')) ? 'design' : 'dsa';
+        titleLink.href = `https://takeuforward.org/practice/${track}/${slug || ''}`;
+        titleLink.target = '_blank';
+        titleLink.rel = 'noopener noreferrer';
+        titleLink.title = 'Open problem on TakeUForward';
+      }
+      leftCol.appendChild(titleLink);
+      row.appendChild(leftCol);
+
+      const badge = document.createElement('span');
+      badge.className = 'repair-reason-badge';
       const reasonText = (reasons || []).map(r => REASON_LABELS[r] || r).join(', ');
-      row.textContent = `• ${title || folderPath} (${reasonText})`;
+      badge.textContent = reasonText;
+      row.appendChild(badge);
+
       needsRepairBody.appendChild(row);
     });
   }
 
-  // Regenerates one flagged problem's README from its live TUF page.
-  // Returns null when nothing needs to change (content already matches) or the problem cannot be safely repaired (URL doesn't fit the known rewrite rule, the live page 404s, or its title no longer matches, meaning the slug was genuinely renamed rather than just moved). A skipped problem is left flagged and is retried automatically on the next Sync, never silently dropped.
-  async function repairOneProblem(token, hook, item) {
+  // Regenerates one flagged problem's README from its live TUF page or updates its difficulty badge.
+  // Returns null when nothing needs to change or the problem cannot be safely repaired.
+  async function repairOneProblem(token, hook, item, preResolvedDifficulty = null) {
     const curRes = await ghGet(`https://api.github.com/repos/${hook}/contents/${item.folderPath}/README.md`, token);
     if (!curRes.ok) return { skipped: true, slug: item.slug, reason: `Could not read current README (HTTP ${curRes.status})` };
     const currentJson = await curRes.json();
@@ -257,9 +575,34 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!titleMatch) return { skipped: true, slug: item.slug, reason: 'Could not find a title link in the current README' };
     const knownTitle = titleMatch[1];
     const oldUrl = titleMatch[2];
-    const difficulty = difficultyMatch ? difficultyMatch[1] : 'Unspecified';
+    let difficulty = difficultyMatch ? difficultyMatch[1] : 'Unspecified';
 
-    const newUrl = canonicalProblemUrl(oldUrl);
+    const reasons = item.reasons || [];
+    let liveDifficultyResolved = preResolvedDifficulty;
+
+    if (!liveDifficultyResolved && (reasons.includes('unspecified_difficulty') || difficulty.toLowerCase() === 'unspecified')) {
+      const fetchedDiff = await fetchDifficultyFromTuf(item.slug);
+      if (fetchedDiff && fetchedDiff.toLowerCase() !== 'unspecified' && fetchedDiff !== 'Subscribe to TUF+') {
+        difficulty = fetchedDiff === 'Basic' ? 'Easy' : fetchedDiff;
+        liveDifficultyResolved = difficulty;
+      }
+    } else if (liveDifficultyResolved) {
+      difficulty = liveDifficultyResolved;
+    }
+
+    const needsContentRewrite = reasons.includes('stale_link') || reasons.includes('garbled_content');
+
+    if (!needsContentRewrite) {
+      if (liveDifficultyResolved) {
+        const newContent = updateDifficultyBadgeInReadme(currentContent, liveDifficultyResolved);
+        if (newContent !== currentContent) {
+          return { skipped: false, changed: true, slug: item.slug, path: `${item.folderPath}/README.md`, content: newContent, difficulty: liveDifficultyResolved };
+        }
+      }
+      return { skipped: false, changed: false, slug: item.slug };
+    }
+
+    const newUrl = canonicalProblemUrl(oldUrl) || oldUrl;
     if (!newUrl) return { skipped: true, slug: item.slug, reason: 'Link did not fit the known rewrite rule' };
 
     let liveRes;
@@ -272,15 +615,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const doc = new DOMParser().parseFromString(await liveRes.text(), 'text/html');
     const fields = extractProblemFields(doc);
-    // A live page returning 200 only proves a page exists there, not that it's the same problem: TUF could have reassigned the slug entirely.
+    // A live page returning 200 proves content exists there.
     if (!fields.title || fields.title.trim().toLowerCase() !== knownTitle.trim().toLowerCase()) {
       return { skipped: true, slug: item.slug, reason: `Live page title "${fields.title || '(none)'}" did not match expected "${knownTitle}"` };
     }
 
     const newContent = buildProblemReadme({ title: fields.title, difficulty, description: fields.description, url: newUrl });
-    if (newContent.trim() === currentContent.trim()) return { skipped: false, changed: false, slug: item.slug };
+    if (newContent.trim() === currentContent.trim() && !liveDifficultyResolved) {
+      return { skipped: false, changed: false, slug: item.slug };
+    }
 
-    return { skipped: false, changed: true, slug: item.slug, path: `${item.folderPath}/README.md`, content: newContent };
+    return { skipped: false, changed: true, slug: item.slug, path: `${item.folderPath}/README.md`, content: newContent, difficulty: liveDifficultyResolved };
   }
 
   if (repairAllBtn) {
@@ -290,47 +635,164 @@ document.addEventListener('DOMContentLoaded', () => {
       if (items.length === 0) return;
 
       const ok = confirm(
-        `Repair ${items.length} problem${items.length > 1 ? 's' : ''} in ${repoHook || 'your repo'}: rewrite each dead link and regenerate its README from the live TUF page, committed together in one commit?\n\nThis cannot be undone.`
+        `Repair ${items.length} problem${items.length > 1 ? 's' : ''} in ${repoHook || 'your repo'}? Unspecified difficulties will be resolved from TakeUForward, and stale links will be updated in one commit.\n\nThis cannot be undone.`
       );
       if (!ok) return;
 
       repairAllBtn.disabled = true;
-      repairAllBtn.textContent = 'Repairing...';
+      repairAllBtn.textContent = 'Resolving...';
 
-      const token = res.tufhub_token;
-      const hook = res.tufhub_hook;
-      const results = await mapWithConcurrency(items, 4, item => repairOneProblem(token, hook, item));
-      const files = results.filter(r => !r.skipped && r.changed).map(r => ({ path: r.path, content: r.content }));
-      const skipped = results.filter(r => r.skipped);
+      try {
+        const token = res.tufhub_token;
+        const hook = res.tufhub_hook;
 
-      // Surfaces the actual reason instead of only a count, so a problem that keeps failing (a genuinely renamed slug, a network hiccup, TUF gating a URL's query string) is debuggable from the popup alone rather than silently retried forever.
-      const reportSkips = () => {
-        if (skipped.length === 0) return;
-        alert(`${skipped.length} problem${skipped.length > 1 ? 's' : ''} could not be repaired:\n\n${skipped.map(r => `${r.slug}: ${r.reason}`).join('\n')}`);
-      };
+        const unspecifiedSlugs = items
+          .filter(item => (item.reasons || []).includes('unspecified_difficulty'))
+          .map(item => item.slug);
 
-      if (files.length === 0) {
-        repairAllBtn.disabled = false;
-        repairAllBtn.textContent = skipped.length ? `Repaired 0, ${skipped.length} skipped` : 'Nothing to repair';
-        setTimeout(() => { repairAllBtn.textContent = 'Repair all'; }, 2500);
-        reportSkips();
-        return;
-      }
+        let preResolvedMap = {};
+        if (unspecifiedSlugs.length > 0) {
+          const targetTab = await findTakeUForwardTab();
+          if (!targetTab) {
+            alert('Please open takeuforward.org in a browser tab first so TUFHub can read problem difficulties.');
+            return;
+          }
+          preResolvedMap = await fetchDifficultiesInBatch(unspecifiedSlugs);
+        }
 
-      chrome.runtime.sendMessage({ type: 'REPAIR_PROBLEMS', files }, (result) => {
-        const r = result || { reason: 'error' };
-        repairAllBtn.disabled = false;
-        if (r.ok === false) {
-          repairAllBtn.textContent = 'Repair failed: retry';
+        repairAllBtn.textContent = 'Repairing...';
+        const results = await mapWithConcurrency(items, 4, item => repairOneProblem(token, hook, item, preResolvedMap[item.slug]));
+        const files = results.filter(r => !r.skipped && r.changed).map(r => ({ path: r.path, content: r.content }));
+        const skipped = results.filter(r => r.skipped);
+
+        const difficultyUpdates = {};
+        results.forEach(r => {
+          if (r.difficulty) {
+            difficultyUpdates[r.slug] = r.difficulty;
+          }
+        });
+
+        // Surfaces the actual reason instead of only a count so failures are visible.
+        const reportSkips = () => {
+          if (skipped.length === 0) return;
+          alert(`${skipped.length} problem${skipped.length > 1 ? 's' : ''} could not be repaired:\n\n${skipped.map(r => `${r.slug}: ${r.reason}`).join('\n')}`);
+        };
+
+        if (files.length === 0 && Object.keys(difficultyUpdates).length === 0) {
+          repairAllBtn.textContent = skipped.length ? `Repaired 0, ${skipped.length} skipped` : 'Nothing to repair';
+          reportSkips();
           return;
         }
-        repairAllBtn.textContent = skipped.length ? `Repaired ${files.length}, ${skipped.length} skipped` : `Repaired ${files.length}`;
-        setTimeout(() => { repairAllBtn.textContent = 'Repair all'; }, 2500);
-        if (r.stats) renderStats(r.stats);
-        if ('duplicates' in r) renderDuplicates(r.duplicates);
-        if ('needsRepair' in r) renderNeedsRepair(r.needsRepair);
-        reportSkips();
-      });
+
+        repairAllBtn.textContent = 'Committing...';
+        chrome.runtime.sendMessage({ type: 'REPAIR_PROBLEMS', files, difficultyUpdates }, (result) => {
+          const r = result || { reason: 'error' };
+          if (r.ok === false) {
+            repairAllBtn.textContent = 'Repair failed: retry';
+            return;
+          }
+          repairAllBtn.textContent = skipped.length ? `Repaired ${files.length}, ${skipped.length} skipped` : `Repaired ${files.length}`;
+          if (r.stats) renderStats(r.stats);
+          if ('duplicates' in r) renderDuplicates(r.duplicates);
+          if ('needsRepair' in r) renderNeedsRepair(r.needsRepair);
+          reportSkips();
+        });
+      } catch (err) {
+        console.error('Repair failed:', err);
+        alert(`Could not complete repairs: ${err && err.message}`);
+      } finally {
+        setTimeout(() => {
+          repairAllBtn.disabled = false;
+          repairAllBtn.textContent = 'Repair all';
+        }, 2500);
+      }
+    });
+  }
+
+  if (resolveAllBtn) {
+    resolveAllBtn.addEventListener('click', async () => {
+      const res = await chrome.storage.local.get(['tufhub_last_reconcile_result', 'tufhub_token', 'tufhub_hook']);
+      const duplicates = (res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.duplicates) || [];
+      const items = (res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.needsRepair) || [];
+      if (duplicates.length === 0 && items.length === 0) return;
+
+      const ok = confirm(
+        `Resolve all repository issues in ${repoHook || 'your repo'}?\n\n` +
+        `• Merge ${duplicates.length} duplicate problem folder(s) into newest copies\n` +
+        `• Repair ${items.length} problem(s) (resolve difficulties and fix links)\n\n` +
+        `This will execute in one atomic batch. This cannot be undone.`
+      );
+      if (!ok) return;
+
+      resolveAllBtn.disabled = true;
+      resolveAllBtn.textContent = 'Resolving...';
+
+      try {
+        const token = res.tufhub_token;
+        const hook = res.tufhub_hook;
+
+        // 1. Gather duplicate moves and deletes
+        const allMoves = [];
+        const allDeletes = [];
+        duplicates.forEach(({ folders }) => {
+          const plan = computeMergePlan(folders);
+          allMoves.push(...plan.moves);
+          allDeletes.push(...plan.deletes);
+        });
+
+        // 2. Pre-fetch difficulties in batch
+        const unspecifiedSlugs = items
+          .filter(item => (item.reasons || []).includes('unspecified_difficulty'))
+          .map(item => item.slug);
+
+        let preResolvedMap = {};
+        if (unspecifiedSlugs.length > 0) {
+          const targetTab = await findTakeUForwardTab();
+          if (!targetTab) {
+            alert('Please open takeuforward.org in a browser tab first so TUFHub can read problem difficulties.');
+            return;
+          }
+          preResolvedMap = await fetchDifficultiesInBatch(unspecifiedSlugs);
+        }
+
+        // 3. Repair items
+        resolveAllBtn.textContent = 'Repairing...';
+        const repairResults = await mapWithConcurrency(items, 4, item => repairOneProblem(token, hook, item, preResolvedMap[item.slug]));
+        const files = repairResults.filter(r => !r.skipped && r.changed).map(r => ({ path: r.path, content: r.content }));
+        const difficultyUpdates = {};
+        repairResults.forEach(r => {
+          if (r.difficulty) {
+            difficultyUpdates[r.slug] = r.difficulty;
+          }
+        });
+
+        // 4. Send unified resolution message to background worker
+        resolveAllBtn.textContent = 'Committing...';
+        chrome.runtime.sendMessage({
+          type: 'RESOLVE_ALL_REPO_ISSUES',
+          moves: allMoves,
+          deletes: allDeletes,
+          files,
+          difficultyUpdates
+        }, (result) => {
+          const r = result || { reason: 'error' };
+          if (r.ok === false) {
+            alert('Could not complete all repairs. Please retry or resolve cards individually.');
+            return;
+          }
+          if (r.stats) renderStats(r.stats);
+          if ('duplicates' in r) renderDuplicates(r.duplicates);
+          if ('needsRepair' in r) renderNeedsRepair(r.needsRepair);
+        });
+      } catch (err) {
+        console.error('Resolve all failed:', err);
+        alert(`Could not complete resolution: ${err && err.message}`);
+      } finally {
+        setTimeout(() => {
+          resolveAllBtn.disabled = false;
+          resolveAllBtn.textContent = 'Fix & Merge All';
+        }, 2500);
+      }
     });
   }
 

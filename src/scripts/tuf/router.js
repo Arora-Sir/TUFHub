@@ -19,21 +19,26 @@
 
 import { sanitizePathSegment, hasToken, hasExactToken } from '../util.js';
 
-// Maps syllabus sidebar topic labels to canonical folder names for DSA problems.
+// Maps syllabus sidebar topic labels to canonical folder names for DSA and SQL problems.
 // NOTE: Sidebar auto-highlights active category and sub-category paths on page load.
 // NOTE: Sidebar state is more reliable than URL slug keyword sniffing because many slugs lack recognizable keywords.
 // NOTE: Unmapped categories pass through as sanitized folder names rather than being dropped.
 const SIDEBAR_TOPIC_MAP = {
+  // DSA topics
   'sorting': 'Sorting',
   'arrays': 'Arrays',
   'hashing': 'Hashing',
   'binary search': 'Binary-Search',
   'recursion': 'Recursion',
   'linked-list': 'Linked-List',
+  'linked list': 'Linked-List',
   'bit manipulation': 'Bit-Manipulation',
   'greedy algorithms': 'Greedy',
   'sliding window / 2 pointer': 'Sliding-Window',
+  'sliding window': 'Sliding-Window',
   'stack / queues': 'Stack-Queue',
+  'stack and queue': 'Stack-Queue',
+  'stack and queues': 'Stack-Queue',
   'binary trees': 'Trees',
   'binary search trees': 'Trees',
   'heaps': 'Heaps',
@@ -41,7 +46,26 @@ const SIDEBAR_TOPIC_MAP = {
   'dynamic programming': 'Dynamic-Programming',
   'tries': 'Tries',
   'strings (advanced algo)': 'Strings',
-  'maths': 'Maths'
+  'strings': 'Strings',
+  'maths': 'Maths',
+
+  // SQL topics (canonical casing matches TakeUForward syllabus)
+  'database basics and schema design': 'Database-Basics-and-Schema-Design',
+  'querying and filtering': 'Querying-and-Filtering',
+  'aggregation and grouping': 'Aggregation-and-Grouping',
+  'joins and multi-table queries': 'Joins-and-Multi-Table-Queries',
+  'subqueries and missing records': 'Subqueries-and-Missing-Records',
+  'set operations and combined results': 'Set-Operations-and-Combined-Results',
+  'conditional logic and case statements': 'Conditional-Logic-and-CASE-Statements',
+  'conditional logic and calculations': 'Conditional-Logic-and-CASE-Statements',
+  'window functions and analytics': 'Window-Functions-and-Analytics',
+  'window functions': 'Window-Functions-and-Analytics',
+  'ranking and top n queries': 'Ranking-and-Top-N-Queries',
+  'ranking and top-n queries': 'Ranking-and-Top-N-Queries',
+  'date and time functions': 'Date-and-Time-Functions',
+  'date and time analysis': 'Date-and-Time-Functions',
+  'string and pattern matching': 'String-and-Pattern-Matching',
+  'advanced data transformations and pivoting': 'Advanced-Data-Transformations-and-Pivoting'
 };
 
 // Category folder name overrides for URL segments where acronym capitalization is desired.
@@ -52,10 +76,15 @@ const CATEGORY_NAME_OVERRIDES = {
 };
 
 function titleCaseSlug(slug) {
+  const lowercaseWords = new Set(['and', 'in', 'of', 'for', 'to', 'with', 'on', 'at', 'by', 'from']);
   return slug
     .split('-')
     .filter(Boolean)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .map((w, idx) => {
+      const lower = w.toLowerCase();
+      if (idx > 0 && lowercaseWords.has(lower)) return lower;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
     .join('-');
 }
 
@@ -64,10 +93,16 @@ function categoryNameFromSegment(segment) {
   return CATEGORY_NAME_OVERRIDES[key] || titleCaseSlug(segment);
 }
 
-function canonicalizeTopicLabel(label) {
+export function canonicalizeTopicLabel(label) {
   if (!label) return '';
-  const key = label.toLowerCase().trim();
-  return SIDEBAR_TOPIC_MAP[key] || label;
+  const trimmed = label.trim();
+  const key = trimmed.toLowerCase();
+  if (SIDEBAR_TOPIC_MAP[key]) return SIDEBAR_TOPIC_MAP[key];
+  const dehyphenated = key.replace(/[-_]+/g, ' ').trim();
+  if (SIDEBAR_TOPIC_MAP[dehyphenated]) return SIDEBAR_TOPIC_MAP[dehyphenated];
+  const hyphenated = key.replace(/\s+/g, '-');
+  if (SIDEBAR_TOPIC_MAP[hyphenated]) return SIDEBAR_TOPIC_MAP[hyphenated];
+  return label;
 }
 
 // Resolves ground-truth topic from the cached syllabus API response over DOM scraping or keyword heuristics.
@@ -239,7 +274,10 @@ function resolveTopicForCategory(category, pathname, searchParams, data, hints) 
     if (domTopic) return domTopic;
 
     const paramTopic = (searchParams.get('category') || searchParams.get('topic') || '').trim();
-    if (paramTopic) return titleCaseSlug(paramTopic);
+    if (paramTopic) {
+      const canonical = canonicalizeTopicLabel(paramTopic);
+      return canonical !== paramTopic ? canonical : titleCaseSlug(paramTopic);
+    }
 
     const keywordTopic = dsaKeywordFallback(pathname, searchParams, data);
     if (keywordTopic) return keywordTopic;
@@ -248,7 +286,10 @@ function resolveTopicForCategory(category, pathname, searchParams, data, hints) 
   }
 
   const paramTopic = (searchParams.get('category') || searchParams.get('topic') || '').trim();
-  if (paramTopic) return titleCaseSlug(paramTopic);
+  if (paramTopic) {
+    const canonical = canonicalizeTopicLabel(paramTopic);
+    return canonical !== paramTopic ? canonical : titleCaseSlug(paramTopic);
+  }
 
   const domTopic = canonicalizeTopicLabel(hints.sidebarMain);
   if (domTopic) return domTopic;

@@ -77,11 +77,21 @@ html {
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
-  padding: 16px;
-  margin-bottom: 16px;
+  padding: 14px;
+  margin-bottom: 10px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
   box-sizing: border-box;
   max-width: 100%;
+}
+
+details.card {
+  padding: 10px 14px;
+  margin-bottom: 8px;
+}
+
+details.card[open] {
+  padding: 12px 14px 14px;
+  margin-bottom: 10px;
 }
 
 .card-subtitle {
@@ -237,13 +247,14 @@ html {
 
 .support-section {
   border-top: 1px solid var(--card-border);
-  padding-top: 14px;
+  padding-top: 10px;
+  margin-top: 4px;
 }
 
 .support-title {
   font-size: 0.85rem;
   color: var(--text-muted);
-  margin: 0 0 10px 0;
+  margin: 0 0 8px 0;
   text-align: center;
   font-weight: 500;
 }
@@ -283,9 +294,10 @@ html {
 
 .milestone-banner {
   position: relative;
-  padding: 4px 26px 10px 0;
-  margin-bottom: 14px;
-  border-bottom: 1px solid var(--card-border);
+  padding: 4px 26px 6px 0;
+  margin-top: 6px;
+  margin-bottom: 10px;
+  border-bottom: none;
 }
 
 .milestone-banner-text {
@@ -396,6 +408,87 @@ html {
 
 .dev-footer-link:hover {
   text-decoration: underline;
+}
+
+/* Duplicate folder actions 2x2 grid and row actions */
+.dup-actions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.dup-grid-btn {
+  width: 100% !important;
+  padding: 6px 4px !important;
+  font-size: 11px !important;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.merge-highlight-btn {
+  background: rgba(34, 197, 94, 0.15) !important;
+  border: 1px solid rgba(34, 197, 94, 0.4) !important;
+  color: #4ade80 !important;
+}
+
+.merge-highlight-btn:hover {
+  background: rgba(34, 197, 94, 0.25) !important;
+  border-color: rgba(34, 197, 94, 0.6) !important;
+}
+
+.dup-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+  margin-bottom: 2px;
+  padding-right: 4px;
+}
+
+.dup-action-chip {
+  width: auto !important;
+  padding: 2px 8px !important;
+  font-size: 10px !important;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+/* Needs repair list and badge styling */
+.repair-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+  font-size: 11px;
+}
+
+.repair-title-link {
+  color: #e2e8f0;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.repair-title-link:hover {
+  text-decoration: underline;
+  color: #60a5fa;
+}
+
+.repair-reason-badge {
+  font-size: 10px;
+  font-style: italic;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .hidden {

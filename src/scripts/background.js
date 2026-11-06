@@ -4,7 +4,7 @@
  */
 
 import { reconcileRepoFromTree } from './tuf/stats.js';
-import { commitFiles, deleteFiles } from './tuf/uploader.js';
+import { commitFiles, deleteFiles, mergeAndPruneFolders } from './tuf/uploader.js';
 import { enqueueGitHubWrite } from './tuf/writeQueue.js';
 import { acceptSyncJob, applyBadgeState, drainSyncQueue, SYNC_RETRY_ALARM } from './tuf/syncQueue.js';
 import { TUF_CONTENT_SCRIPT_URL } from './util.js';
@@ -283,20 +283,120 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
 
-  if (request.type === 'REPAIR_PROBLEMS') {
-    // NOTE: The fetch, DOM-parse, and README regeneration for each flagged problem already happened in popup.js (a real page with a real DOMParser; this service worker has none). This handler only commits the finished file contents, same division of labor as every other write path.
+  if (request.type === 'MERGE_DUPLICATE_FOLDERS') {
     chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], (res) => {
       const token = res.tufhub_token;
       const hook = res.tufhub_hook;
+      const moves = request.moves || [];
+      const deletes = request.deletes || [];
+      const commitMsg = request.commitMessage || `Merge duplicate folders into ${request.canonicalFolder || 'canonical folder'} (TUFHub)`;
+
+      enqueueGitHubWrite(async () => {
+        await mergeAndPruneFolders(token, hook, { moves, deletes }, commitMsg);
+        let result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
+        if (request.deletedFolderPaths && request.deletedFolderPaths.length > 0) {
+          const stillThere = (result.duplicates || []).some(d =>
+            (d.folders || []).some(f => request.deletedFolderPaths.includes(f.folderPath)));
+          if (stillThere) {
+            await new Promise(r => setTimeout(r, 1500));
+            result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
+          }
+          if (result.duplicates) {
+            result = {
+              ...result,
+              duplicates: result.duplicates
+                .map(d => ({ ...d, folders: (d.folders || []).filter(f => !request.deletedFolderPaths.includes(f.folderPath)) }))
+                .filter(d => (d.folders || []).length > 1)
+            };
+          }
+        }
+        return result;
+      })
+        .then((result) => {
+          chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          sendResponse(result);
+        })
+        .catch((err) => {
+          sendResponse({ ok: false, reason: 'error', message: err && err.message });
+        });
+    });
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.type === 'RESOLVE_ALL_REPO_ISSUES') {
+    // NOTE: Executes duplicate folder merge and problem repairs in one coordinated GitHub transaction.
+    // NOTE: Runs reconcileRepoFromTree once at the conclusion to save API roundtrips.
+    chrome.storage.local.get(['tufhub_token', 'tufhub_hook', 'stats'], (res) => {
+      const token = res.tufhub_token;
+      const hook = res.tufhub_hook;
+      const moves = request.moves || [];
+      const deletes = request.deletes || [];
       const files = request.files || [];
-      if (files.length === 0) {
+      const difficultyUpdates = request.difficultyUpdates || {};
+
+      enqueueGitHubWrite(async () => {
+        if (Object.keys(difficultyUpdates).length > 0) {
+          const currentStats = res.stats || {};
+          const problems = currentStats.problems || {};
+          Object.entries(difficultyUpdates).forEach(([slug, diff]) => {
+            if (problems[slug]) {
+              problems[slug].difficulty = diff;
+            }
+          });
+          await chrome.storage.local.set({ stats: currentStats });
+        }
+
+        if (moves.length > 0 || deletes.length > 0) {
+          await mergeAndPruneFolders(token, hook, { moves, deletes }, 'Merge duplicate folders into newest copies (TUFHub)');
+        }
+
+        if (files.length > 0) {
+          await commitFiles(token, hook, files, `Repair ${files.length} problem README(s): fix difficulty tags and links (TUFHub)`);
+        }
+
+        let result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
+        return result;
+      })
+        .then((result) => {
+          chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          sendResponse(result);
+        })
+        .catch((err) => {
+          sendResponse({ ok: false, reason: 'error', message: err && err.message });
+        });
+    });
+    return true;
+  }
+
+  if (request.type === 'REPAIR_PROBLEMS') {
+    // NOTE: Problem fetch and README regeneration happen in popup.js with DOMParser.
+    // NOTE: This handler updates cached stats and commits the finished file contents atomically.
+    chrome.storage.local.get(['tufhub_token', 'tufhub_hook', 'stats'], (res) => {
+      const token = res.tufhub_token;
+      const hook = res.tufhub_hook;
+      const files = request.files || [];
+      const difficultyUpdates = request.difficultyUpdates || {};
+      if (files.length === 0 && Object.keys(difficultyUpdates).length === 0) {
         sendResponse({ ok: false, reason: 'error', message: 'No repaired files to commit.' });
         return;
       }
       const repairedFolders = files.map(f => f.path.replace(/\/README\.md$/, ''));
 
       enqueueGitHubWrite(async () => {
-        await commitFiles(token, hook, files, `Repair ${files.length} problem README(s): fix dead TUF links and regenerate content (TUFHub)`);
+        if (Object.keys(difficultyUpdates).length > 0) {
+          const currentStats = res.stats || {};
+          const problems = currentStats.problems || {};
+          Object.entries(difficultyUpdates).forEach(([slug, diff]) => {
+            if (problems[slug]) {
+              problems[slug].difficulty = diff;
+            }
+          });
+          await chrome.storage.local.set({ stats: currentStats });
+        }
+
+        if (files.length > 0) {
+          await commitFiles(token, hook, files, `Repair ${files.length} problem README(s): fix difficulty tags and links (TUFHub)`);
+        }
         let result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
         // Retries once if the tree-read briefly lags the commit that just landed on GitHub.
         const stillFlagged = (result.needsRepair || []).some(item => repairedFolders.includes(item.folderPath));

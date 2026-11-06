@@ -54,7 +54,7 @@ const BOX_DRAWING_RE = /[─-╿]/;
  * Title link staleness and leftover box-art are independent signals: a README can have either, both, or neither.
  * NOTE: Box-drawing characters inside a fenced code block are the FIXED, intended output (readme.js wraps TUF's own hand-typed ASCII tables in one), not garbling. Only a box-drawing character sitting directly in prose, never fenced, is the pre-fix symptom, so fenced regions are stripped before the check.
  */
-export function detectReadmeIssues(content) {
+export function detectReadmeIssues(content, cachedProblem = null) {
   const reasons = [];
   const text = content || '';
   const titleMatch = text.match(/^# \[.*?\]\((.*?)\)/);
@@ -62,5 +62,21 @@ export function detectReadmeIssues(content) {
   if (isStaleUrl(url)) reasons.push('stale_link');
   const outsideFences = text.replace(/```[\s\S]*?```/g, '');
   if (BOX_DRAWING_RE.test(outsideFences)) reasons.push('garbled_content');
-  return { needsRepair: reasons.length > 0, reasons, url };
+
+  // Extracts actual badge difficulty if present in problem README.
+  const diffMatch = text.match(/!\[Difficulty: (.*?)\]/);
+  const badgeDifficulty = diffMatch ? diffMatch[1] : null;
+
+  // Detects unspecified difficulty in README badge or cached problem metadata.
+  const hasUnspecifiedBadge = badgeDifficulty ? badgeDifficulty.toLowerCase() === 'unspecified' : false;
+  const isCachedUnspecified = cachedProblem && (
+    (cachedProblem.difficulty || '').toLowerCase() === 'unspecified' ||
+    cachedProblem.difficulty === '⚪ Unspecified'
+  );
+
+  if (hasUnspecifiedBadge || (!badgeDifficulty && isCachedUnspecified)) {
+    reasons.push('unspecified_difficulty');
+  }
+
+  return { needsRepair: reasons.length > 0, reasons, url, badgeDifficulty };
 }
