@@ -54,3 +54,4 @@ TUFHub is an open-source project licensed under the MIT License. You can review 
 
 - **GitHub Repository:** [https://github.com/Arora-Sir/TUFHub](https://github.com/Arora-Sir/TUFHub)
 - **Developer Profile:** [https://github.com/Arora-Sir](https://github.com/Arora-Sir)
+- **Email:** [contact@mohitarora.me](mailto:contact@mohitarora.me)
