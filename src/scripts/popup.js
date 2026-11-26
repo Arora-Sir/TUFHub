@@ -1,9 +1,11 @@
 import { scanAndSyncRepoStats } from './tuf/stats.js';
-import { TUF_CONTENT_SCRIPT_URL, decode, mapWithConcurrency, classifyDifficulty } from './util.js';
+import { TUF_CONTENT_SCRIPT_URL, decode, mapWithConcurrency, classifyDifficulty, KNOWN_TRACK_SYLLABUS_KEYS } from './util.js';
 import { ghGet } from './tuf/uploader.js';
 import { buildProblemReadme } from './tuf/readme.js';
 import { extractProblemFields } from './tuf/pageExtract.js';
 import { canonicalProblemUrl } from './tuf/repair.js';
+import { computeMergePlan, mergeOrder, relocationPlan, placeProblem } from './tuf/repoLayout.js';
+import { resolveHierarchy } from './tuf/router.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   // Clear toolbar badge when popup opens
@@ -85,15 +87,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let repoHook = ''; // set once auth state loads below, reused in the delete confirm dialog
 
-  // Sorts folders newest first so star indicators match the version preserved during bulk deletion.
-  // NOTE: Newer copies reflect current categorization, while older copies predate topic fixes.
-  // NOTE: Null timestamps sort last so lookup errors are never mistaken for the oldest commit.
+  // Orders a duplicate group with the copy to keep first: a real track folder (DSA, SQL) before the General bucket or a Core-Subject container, then newest.
+  // NOTE: Same order as computeMergePlan() in repoLayout.js, so the ★ row is always the folder a merge keeps.
   function sortNewestFirst(folders) {
-    return (folders || []).slice().sort((a, b) => {
-      if (a.lastModified == null) return 1;
-      if (b.lastModified == null) return -1;
-      return b.lastModified - a.lastModified;
-    });
+    return mergeOrder(folders);
   }
 
   // Names the solution files that exist only in this folder, so a duplicate cleanup never drops a solution the other copies lack without saying so.
@@ -101,41 +98,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const nameOf = path => path.split('/').pop();
     const elsewhere = new Set(otherFolders.flatMap(f => (f.files || []).map(nameOf)));
     return (folder.files || []).map(nameOf).filter(name => name !== 'README.md' && !elsewhere.has(name));
-  }
-
-  function computeMergePlan(folders) {
-    const sorted = sortNewestFirst(folders);
-    const target = sorted[0];
-    const targetFolder = target.folderPath;
-    const stale = sorted.slice(1);
-
-    const targetFileNames = new Set((target.files || []).map(p => p.split('/').pop()));
-    const moves = [];
-    const deletes = [];
-
-    stale.forEach(staleFolder => {
-      (staleFolder.files || []).forEach(filePath => {
-        deletes.push(filePath);
-        const fileName = filePath.split('/').pop();
-        if (fileName && fileName !== 'README.md' && !targetFileNames.has(fileName)) {
-          const detail = (staleFolder.fileDetails || []).find(d => d.name === fileName);
-          if (detail && detail.sha) {
-            moves.push({
-              targetPath: `${targetFolder}/${fileName}`,
-              sha: detail.sha
-            });
-            targetFileNames.add(fileName);
-          }
-        }
-      });
-    });
-
-    return {
-      canonicalFolder: targetFolder,
-      moves,
-      deletes,
-      deletedFolderPaths: stale.map(s => s.folderPath)
-    };
   }
 
   function renderDuplicates(duplicates) {
@@ -196,12 +158,12 @@ document.addEventListener('DOMContentLoaded', () => {
         folderBlock.style.cssText = 'margin-top: 4px; padding-left: 6px;';
 
         const pathLine = document.createElement('div');
-        const isNewest = i === 0 && lastModified != null;
+        const isNewest = i === 0;
         pathLine.style.cssText = `font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; word-break: break-word; ${isNewest ? 'color: #22c55e;' : 'opacity: 0.8;'}`;
         let label = `• ${folderPath}`;
         if (folderPath.includes('/General/')) label += ' (old default bucket)';
         if (lastModified != null) label += ` (${timeAgo(lastModified)})`;
-        if (isNewest) label += ' ★ newest';
+        if (isNewest) label += ' ★ keep';
 
         if (repoHook) {
           const ghLink = document.createElement('a');
@@ -296,7 +258,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const hint = document.createElement('div');
     hint.style.cssText = 'margin-top: 4px; padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, 0.1); opacity: 0.65;';
-    hint.textContent = 'Newest copy (green, ★) is usually the correct one to keep; merge or delete the rest.';
+    hint.textContent = 'The ★ copy is kept: a copy under its real track first, otherwise the newest. Merge or delete the rest.';
     duplicatesBody.appendChild(hint);
   }
 
@@ -312,7 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
         lines.push(`# Merge duplicates for: ${slug}`);
         if (plan.moves.length > 0) {
           plan.moves.forEach(m => {
-            lines.push(`git mv "${m.from}" "${m.to}"`);
+            lines.push(`git mv "${m.fromPath}" "${m.targetPath}"`);
           });
         }
         plan.deletedFolderPaths.forEach(dfp => {
@@ -364,7 +326,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (allDeletes.length === 0) return;
 
       const ok = confirm(
-        `Merge duplicate folders across ${duplicates.length} problem(s) into their newest (★) folders? All unique files will be preserved.\n\nThis cannot be undone.`
+        `Merge duplicate folders across ${duplicates.length} problem(s) into their kept (★) folders? All unique files will be preserved.\n\nThis cannot be undone.`
       );
       if (!ok) return;
 
@@ -380,7 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }, (result) => {
         const r = result || { reason: 'error' };
         mergeAllDuplicatesBtn.disabled = false;
-        mergeAllDuplicatesBtn.textContent = 'Merge all into newest (keep ★)';
+        mergeAllDuplicatesBtn.textContent = 'Merge all (keep ★)';
         if (r.ok === false) {
           alert(`Merge failed: ${r.message || 'Unknown error'}`);
           return;
@@ -411,7 +373,7 @@ document.addEventListener('DOMContentLoaded', () => {
         })] : [];
       });
       const ok = confirm(
-        `Delete ${toDelete.length} duplicate folder${toDelete.length > 1 ? 's' : ''} from ${repoHook || 'your repo'} in one commit? The newest (★) copy of each is kept.\n\nThis cannot be undone.\n\n${confirmLines.join('\n')}`
+        `Delete ${toDelete.length} duplicate folder${toDelete.length > 1 ? 's' : ''} from ${repoHook || 'your repo'} in one commit? The ★ copy of each is kept.\n\nThis cannot be undone.\n\n${confirmLines.join('\n')}`
       );
       if (!ok) return;
 
@@ -437,7 +399,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const REASON_LABELS = {
     stale_link: 'dead link',
     garbled_content: 'old formatting',
-    unspecified_difficulty: 'unspecified difficulty'
+    unspecified_difficulty: 'unspecified difficulty',
+    split_topic_folder: 'split topic folder',
+    misfiled_track: 'wrong track folder'
   };
 
   function updateDifficultyBadgeInReadme(content, difficulty) {
@@ -464,102 +428,61 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  async function fetchDifficultiesInBatch(slugs) {
-    if (!slugs || slugs.length === 0) return {};
+  /**
+   * Reads TUF's own problem metadata (difficulty, problem_type) for each slug, plus optional sheet syllabi, through an open TUF tab so the user's session cookie applies.
+   * Returns { problems: { slug: { difficulty, problemType } }, syllabus: { slug: mainTopic } }, empty when no TUF tab is open.
+   * NOTE: problem_type ("sql", "dsa") is what moves a misfiled Core-Subject folder to its real track (BUG-017). The SQL-75 syllabus names its topic.
+   */
+  async function fetchProblemMetaInBatch(slugs, syllabusKeys = []) {
+    const empty = { problems: {}, syllabus: {} };
+    if ((!slugs || slugs.length === 0) && syllabusKeys.length === 0) return empty;
     const targetTab = await findTakeUForwardTab();
-    if (!targetTab) return {};
+    if (!targetTab) return empty;
 
-    const out = {};
     try {
       const [execResult] = await chrome.scripting.executeScript({
         target: { tabId: targetTab.id },
-        func: async (problemSlugs) => {
-          const results = {};
+        func: async (problemSlugs, keys) => {
+          const problems = {};
+          const syllabus = {};
           for (const s of problemSlugs) {
             try {
               const res = await fetch(`https://backend-go.takeuforward.org/api/v2/plus/problem/${s}`, { credentials: 'include' });
-              if (res.ok) {
-                const json = await res.json();
-                const diff = (json && json.data && json.data.difficulty) || (json && json.difficulty) || '';
-                if (diff && diff !== 'Subscribe to TUF+') {
-                  results[s] = diff === 'Basic' ? 'Easy' : diff;
-                }
-              }
+              if (!res.ok) continue;
+              const json = await res.json();
+              const data = (json && json.data) || json || {};
+              const raw = data.difficulty || data.difficultyLevel || data.tier || '';
+              const difficulty = raw && raw !== 'Subscribe to TUF+' ? (raw === 'Basic' ? 'Easy' : raw) : '';
+              const problemType = typeof data.problem_type === 'string' ? data.problem_type.toLowerCase() : '';
+              problems[s] = { difficulty, problemType };
             } catch (err) {}
           }
-          return results;
+          for (const key of keys) {
+            try {
+              const res = await fetch(`https://backend-go.takeuforward.org/api/v2/syllabus/track?type=source&key=${encodeURIComponent(key)}`, { credentials: 'include' });
+              if (!res.ok) continue;
+              const json = await res.json();
+              const walk = (nodes, chain) => {
+                (nodes || []).forEach(n => {
+                  if (n.type === 'problem' && n.slug && chain.length) syllabus[n.slug] = chain[0];
+                  else if (n.children) walk(n.children, chain.concat(n.label || ''));
+                });
+              };
+              walk(json && json.data && json.data.syllabus, []);
+            } catch (err) {}
+          }
+          return { problems, syllabus };
         },
-        args: [slugs]
+        args: [slugs || [], syllabusKeys]
       });
-      if (execResult && execResult.result) {
-        Object.assign(out, execResult.result);
-      }
+      if (execResult && execResult.result) return execResult.result;
     } catch (e) {}
-
-    return out;
+    return empty;
   }
 
   async function fetchDifficultyFromTuf(slug) {
-    const batchRes = await fetchDifficultiesInBatch([slug]);
-    return batchRes[slug] || '';
-  }
-
-  function renderNeedsRepair(items) {
-    currentNeedsRepair = items || [];
-    updateResolveAllBanner();
-    if (!needsRepairSection || !needsRepairBody) return;
-
-    if (!items || !items.length) {
-      needsRepairSection.classList.add('hidden');
-      needsRepairBody.replaceChildren();
-      return;
-    }
-
-    needsRepairSection.classList.remove('hidden');
-    if (needsRepairSummary) {
-      needsRepairSummary.textContent = `${items.length} problem${items.length > 1 ? 's' : ''}`;
-    }
-
-    needsRepairBody.replaceChildren();
-    items.forEach(({ title, folderPath, slug, reasons }) => {
-      const row = document.createElement('div');
-      row.className = 'repair-row';
-
-      const leftCol = document.createElement('div');
-      leftCol.style.cssText = 'display: flex; align-items: center; gap: 5px; min-width: 0; flex: 1;';
-
-      const bullet = document.createElement('span');
-      bullet.textContent = '•';
-      bullet.style.opacity = '0.6';
-      leftCol.appendChild(bullet);
-
-      const titleLink = document.createElement('a');
-      titleLink.className = 'repair-title-link';
-      titleLink.textContent = title || folderPath;
-      if (repoHook && folderPath) {
-        titleLink.href = `https://github.com/${repoHook}/tree/main/${folderPath}`;
-        titleLink.target = '_blank';
-        titleLink.rel = 'noopener noreferrer';
-        titleLink.title = 'View in GitHub';
-      } else {
-        const track = (folderPath && folderPath.startsWith('SQL/')) ? 'sql' :
-                      (folderPath && folderPath.startsWith('Design/')) ? 'design' : 'dsa';
-        titleLink.href = `https://takeuforward.org/practice/${track}/${slug || ''}`;
-        titleLink.target = '_blank';
-        titleLink.rel = 'noopener noreferrer';
-        titleLink.title = 'Open problem on TakeUForward';
-      }
-      leftCol.appendChild(titleLink);
-      row.appendChild(leftCol);
-
-      const badge = document.createElement('span');
-      badge.className = 'repair-reason-badge';
-      const reasonText = (reasons || []).map(r => REASON_LABELS[r] || r).join(', ');
-      badge.textContent = reasonText;
-      row.appendChild(badge);
-
-      needsRepairBody.appendChild(row);
-    });
+    const meta = await fetchProblemMetaInBatch([slug]);
+    return (meta.problems[slug] && meta.problems[slug].difficulty) || '';
   }
 
   // Regenerates one flagged problem's README from its live TUF page or updates its difficulty badge.
@@ -580,7 +503,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const reasons = item.reasons || [];
     let liveDifficultyResolved = preResolvedDifficulty;
 
-    if (!liveDifficultyResolved && (reasons.includes('unspecified_difficulty') || difficulty.toLowerCase() === 'unspecified')) {
+    if (!liveDifficultyResolved && (reasons.includes('unspecified_difficulty') || classifyDifficulty(difficulty) === 'unspecified')) {
       const fetchedDiff = await fetchDifficultyFromTuf(item.slug);
       if (fetchedDiff && fetchedDiff.toLowerCase() !== 'unspecified' && fetchedDiff !== 'Subscribe to TUF+') {
         difficulty = fetchedDiff === 'Basic' ? 'Easy' : fetchedDiff;
@@ -591,12 +514,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const needsContentRewrite = reasons.includes('stale_link') || reasons.includes('garbled_content');
+    // A relocated problem's README is written at its new folder in the same commit.
+    const outPath = `${item.relocateTo || item.folderPath}/README.md`;
+    // Reported instead of silently counted as done, which is how an unfetchable difficulty used to end as "Nothing to repair".
+    if (!needsContentRewrite && reasons.includes('unspecified_difficulty') && !liveDifficultyResolved) {
+      return { skipped: true, slug: item.slug, reason: 'TakeUForward returned no difficulty (sign in on an open TUF tab, then retry)' };
+    }
 
     if (!needsContentRewrite) {
       if (liveDifficultyResolved) {
         const newContent = updateDifficultyBadgeInReadme(currentContent, liveDifficultyResolved);
         if (newContent !== currentContent) {
-          return { skipped: false, changed: true, slug: item.slug, path: `${item.folderPath}/README.md`, content: newContent, difficulty: liveDifficultyResolved };
+          return { skipped: false, changed: true, slug: item.slug, path: outPath, content: newContent, difficulty: liveDifficultyResolved };
         }
       }
       return { skipped: false, changed: false, slug: item.slug };
@@ -625,7 +554,93 @@ document.addEventListener('DOMContentLoaded', () => {
       return { skipped: false, changed: false, slug: item.slug };
     }
 
-    return { skipped: false, changed: true, slug: item.slug, path: `${item.folderPath}/README.md`, content: newContent, difficulty: liveDifficultyResolved };
+    return { skipped: false, changed: true, slug: item.slug, path: outPath, content: newContent, difficulty: liveDifficultyResolved };
+  }
+
+  const LAYOUT_REASONS = ['split_topic_folder', 'misfiled_track'];
+
+  /**
+   * Builds one commit's worth of repairs: folder relocations (moves and deletes) plus repaired README contents.
+   * Items whose folder is in excludedFolders are dropped, because a duplicate merge in the same batch deletes that folder.
+   * Returns { moves, deletes, files, difficultyUpdates, skipped, relocatedCount }, or { error } when TUF data is needed and no TUF tab is open.
+   * NOTE: A misfiled_track item (a Core-Subject folder with no twin) gets its destination here, from TUF's problem_type and the SQL-75 syllabus, then placeProblem() so it joins an existing topic folder spelling.
+   * NOTE: A relocated problem's repaired README is written at the new folder, and commitTreeChanges lets that write win over the README move.
+   */
+  async function buildRepairBatch(token, hook, items, excludedFolders = new Set()) {
+    const active = (items || []).filter(item => !excludedFolders.has(item.folderPath));
+    const needsTrack = active.filter(i => (i.reasons || []).includes('misfiled_track') && !i.relocateTo);
+    const needsTuf = active.filter(i => (i.reasons || []).includes('unspecified_difficulty')).concat(needsTrack);
+
+    let meta = { problems: {}, syllabus: {} };
+    if (needsTuf.length > 0) {
+      if (!(await findTakeUForwardTab())) {
+        return { error: 'Please open takeuforward.org in a browser tab first so TUFHub can read problem details.' };
+      }
+      const slugs = [...new Set(needsTuf.map(i => i.slug))];
+      meta = await fetchProblemMetaInBatch(slugs, needsTrack.length ? Object.values(KNOWN_TRACK_SYLLABUS_KEYS) : []);
+    }
+
+    const stored = await chrome.storage.local.get(['stats']);
+    const problems = (stored.stats && stored.stats.problems) || {};
+    const skipped = [];
+    const moves = [];
+    const deletes = [];
+    const destinations = new Set();
+    let relocatedCount = 0;
+
+    const resolved = active.map(item => {
+      const reasons = item.reasons || [];
+      let relocateTo = item.relocateTo || '';
+      if (reasons.includes('misfiled_track') && !relocateTo) {
+        const m = meta.problems[item.slug] || {};
+        if (!m.problemType) {
+          skipped.push({ slug: item.slug, reason: 'TakeUForward did not return a track for this problem' });
+        } else {
+          const route = resolveHierarchy({
+            url: `https://takeuforward.org/practice/${m.problemType}/${item.slug}`,
+            title: item.title,
+            syllabusMainTopic: meta.syllabus[item.slug] || ''
+          });
+          if (route.supported !== false) {
+            const others = {};
+            Object.entries(problems).forEach(([s, p]) => { if (s !== item.slug) others[s] = p; });
+            relocateTo = placeProblem(route, null, others).folderPath;
+          }
+        }
+      }
+      if (relocateTo && relocateTo !== item.folderPath && !destinations.has(relocateTo)) {
+        destinations.add(relocateTo);
+        const plan = relocationPlan(item.folderPath, item.fileDetails, item.readmeSha, relocateTo);
+        moves.push(...plan.moves);
+        deletes.push(...plan.deletes);
+        relocatedCount++;
+      } else {
+        relocateTo = '';
+      }
+      return { ...item, relocateTo };
+    });
+
+    const readmeItems = resolved.filter(i => (i.reasons || []).some(r => !LAYOUT_REASONS.includes(r)));
+    const results = await mapWithConcurrency(readmeItems, 4, item =>
+      repairOneProblem(token, hook, item, (meta.problems[item.slug] && meta.problems[item.slug].difficulty) || null));
+
+    const files = results.filter(r => !r.skipped && r.changed).map(r => ({ path: r.path, content: r.content }));
+    const difficultyUpdates = {};
+    results.forEach(r => {
+      if (r.skipped) skipped.push(r);
+      else if (r.difficulty) difficultyUpdates[r.slug] = r.difficulty;
+    });
+
+    return { moves, deletes, files, difficultyUpdates, skipped, relocatedCount };
+  }
+
+  function reportSkips(skipped) {
+    if (!skipped || skipped.length === 0) return;
+    alert(`${skipped.length} problem${skipped.length > 1 ? 's' : ''} could not be repaired:\n\n${skipped.map(r => `${r.slug}: ${r.reason}`).join('\n')}`);
+  }
+
+  function hasWork(batch) {
+    return batch.moves.length > 0 || batch.deletes.length > 0 || batch.files.length > 0 || Object.keys(batch.difficultyUpdates).length > 0;
   }
 
   if (repairAllBtn) {
@@ -635,7 +650,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (items.length === 0) return;
 
       const ok = confirm(
-        `Repair ${items.length} problem${items.length > 1 ? 's' : ''} in ${repoHook || 'your repo'}? Unspecified difficulties will be resolved from TakeUForward, and stale links will be updated in one commit.\n\nThis cannot be undone.`
+        `Repair ${items.length} problem${items.length > 1 ? 's' : ''} in ${repoHook || 'your repo'}? Unspecified difficulties are resolved from TakeUForward, stale links are updated, and misplaced folders are moved, all in one commit.\n\nThis cannot be undone.`
       );
       if (!ok) return;
 
@@ -643,59 +658,37 @@ document.addEventListener('DOMContentLoaded', () => {
       repairAllBtn.textContent = 'Resolving...';
 
       try {
-        const token = res.tufhub_token;
-        const hook = res.tufhub_hook;
-
-        const unspecifiedSlugs = items
-          .filter(item => (item.reasons || []).includes('unspecified_difficulty'))
-          .map(item => item.slug);
-
-        let preResolvedMap = {};
-        if (unspecifiedSlugs.length > 0) {
-          const targetTab = await findTakeUForwardTab();
-          if (!targetTab) {
-            alert('Please open takeuforward.org in a browser tab first so TUFHub can read problem difficulties.');
-            return;
-          }
-          preResolvedMap = await fetchDifficultiesInBatch(unspecifiedSlugs);
+        const batch = await buildRepairBatch(res.tufhub_token, res.tufhub_hook, items);
+        if (batch.error) {
+          alert(batch.error);
+          return;
         }
-
-        repairAllBtn.textContent = 'Repairing...';
-        const results = await mapWithConcurrency(items, 4, item => repairOneProblem(token, hook, item, preResolvedMap[item.slug]));
-        const files = results.filter(r => !r.skipped && r.changed).map(r => ({ path: r.path, content: r.content }));
-        const skipped = results.filter(r => r.skipped);
-
-        const difficultyUpdates = {};
-        results.forEach(r => {
-          if (r.difficulty) {
-            difficultyUpdates[r.slug] = r.difficulty;
-          }
-        });
-
-        // Surfaces the actual reason instead of only a count so failures are visible.
-        const reportSkips = () => {
-          if (skipped.length === 0) return;
-          alert(`${skipped.length} problem${skipped.length > 1 ? 's' : ''} could not be repaired:\n\n${skipped.map(r => `${r.slug}: ${r.reason}`).join('\n')}`);
-        };
-
-        if (files.length === 0 && Object.keys(difficultyUpdates).length === 0) {
-          repairAllBtn.textContent = skipped.length ? `Repaired 0, ${skipped.length} skipped` : 'Nothing to repair';
-          reportSkips();
+        if (!hasWork(batch)) {
+          repairAllBtn.textContent = batch.skipped.length ? `Repaired 0, ${batch.skipped.length} skipped` : 'Nothing to repair';
+          reportSkips(batch.skipped);
           return;
         }
 
         repairAllBtn.textContent = 'Committing...';
-        chrome.runtime.sendMessage({ type: 'REPAIR_PROBLEMS', files, difficultyUpdates }, (result) => {
+        chrome.runtime.sendMessage({
+          type: 'REPAIR_PROBLEMS',
+          moves: batch.moves,
+          deletes: batch.deletes,
+          files: batch.files,
+          difficultyUpdates: batch.difficultyUpdates,
+          relocatedCount: batch.relocatedCount
+        }, (result) => {
           const r = result || { reason: 'error' };
           if (r.ok === false) {
             repairAllBtn.textContent = 'Repair failed: retry';
             return;
           }
-          repairAllBtn.textContent = skipped.length ? `Repaired ${files.length}, ${skipped.length} skipped` : `Repaired ${files.length}`;
+          const done = batch.files.length + batch.relocatedCount;
+          repairAllBtn.textContent = batch.skipped.length ? `Repaired ${done}, ${batch.skipped.length} skipped` : `Repaired ${done}`;
           if (r.stats) renderStats(r.stats);
           if ('duplicates' in r) renderDuplicates(r.duplicates);
           if ('needsRepair' in r) renderNeedsRepair(r.needsRepair);
-          reportSkips();
+          reportSkips(batch.skipped);
         });
       } catch (err) {
         console.error('Repair failed:', err);
@@ -718,9 +711,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const ok = confirm(
         `Resolve all repository issues in ${repoHook || 'your repo'}?\n\n` +
-        `• Merge ${duplicates.length} duplicate problem folder(s) into newest copies\n` +
-        `• Repair ${items.length} problem(s) (resolve difficulties and fix links)\n\n` +
-        `This will execute in one atomic batch. This cannot be undone.`
+        `• Merge ${duplicates.length} duplicate problem folder(s) into the kept (★) copy\n` +
+        `• Repair ${items.length} problem(s) (difficulties, links, misplaced folders)\n\n` +
+        `Everything lands in one commit. This cannot be undone.`
       );
       if (!ok) return;
 
@@ -728,52 +721,38 @@ document.addEventListener('DOMContentLoaded', () => {
       resolveAllBtn.textContent = 'Resolving...';
 
       try {
-        const token = res.tufhub_token;
-        const hook = res.tufhub_hook;
-
-        // 1. Gather duplicate moves and deletes
-        const allMoves = [];
-        const allDeletes = [];
+        const mergeMoves = [];
+        const mergeDeletes = [];
+        const deletedFolders = new Set();
         duplicates.forEach(({ folders }) => {
           const plan = computeMergePlan(folders);
-          allMoves.push(...plan.moves);
-          allDeletes.push(...plan.deletes);
+          mergeMoves.push(...plan.moves);
+          mergeDeletes.push(...plan.deletes);
+          plan.deletedFolderPaths.forEach(fp => deletedFolders.add(fp));
         });
 
-        // 2. Pre-fetch difficulties in batch
-        const unspecifiedSlugs = items
-          .filter(item => (item.reasons || []).includes('unspecified_difficulty'))
-          .map(item => item.slug);
-
-        let preResolvedMap = {};
-        if (unspecifiedSlugs.length > 0) {
-          const targetTab = await findTakeUForwardTab();
-          if (!targetTab) {
-            alert('Please open takeuforward.org in a browser tab first so TUFHub can read problem difficulties.');
-            return;
-          }
-          preResolvedMap = await fetchDifficultiesInBatch(unspecifiedSlugs);
+        resolveAllBtn.textContent = 'Repairing...';
+        const batch = await buildRepairBatch(res.tufhub_token, res.tufhub_hook, items, deletedFolders);
+        if (batch.error) {
+          alert(batch.error);
+          return;
         }
 
-        // 3. Repair items
-        resolveAllBtn.textContent = 'Repairing...';
-        const repairResults = await mapWithConcurrency(items, 4, item => repairOneProblem(token, hook, item, preResolvedMap[item.slug]));
-        const files = repairResults.filter(r => !r.skipped && r.changed).map(r => ({ path: r.path, content: r.content }));
-        const difficultyUpdates = {};
-        repairResults.forEach(r => {
-          if (r.difficulty) {
-            difficultyUpdates[r.slug] = r.difficulty;
-          }
-        });
+        const moves = mergeMoves.concat(batch.moves);
+        const deletes = mergeDeletes.concat(batch.deletes);
+        if (!hasWork({ ...batch, moves, deletes })) {
+          resolveAllBtn.textContent = 'Nothing to resolve';
+          reportSkips(batch.skipped);
+          return;
+        }
 
-        // 4. Send unified resolution message to background worker
         resolveAllBtn.textContent = 'Committing...';
         chrome.runtime.sendMessage({
           type: 'RESOLVE_ALL_REPO_ISSUES',
-          moves: allMoves,
-          deletes: allDeletes,
-          files,
-          difficultyUpdates
+          moves,
+          deletes,
+          files: batch.files,
+          difficultyUpdates: batch.difficultyUpdates
         }, (result) => {
           const r = result || { reason: 'error' };
           if (r.ok === false) {
@@ -783,6 +762,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (r.stats) renderStats(r.stats);
           if ('duplicates' in r) renderDuplicates(r.duplicates);
           if ('needsRepair' in r) renderNeedsRepair(r.needsRepair);
+          reportSkips(batch.skipped);
         });
       } catch (err) {
         console.error('Resolve all failed:', err);
@@ -870,6 +850,20 @@ document.addEventListener('DOMContentLoaded', () => {
     repairAnnounceCloseBtn.addEventListener('click', dismissRepairAnnouncementBanner);
   }
 
+  // Locks the popup frame at its first-render content height, so expanding Sync Health or a panel scrolls inside instead of resizing (and repositioning) the popup.
+  // NOTE: Runs once, after banners that load asynchronously have had a moment to appear, which replaces the old fixed 512px frame (BUG-016).
+  let popupHeightLocked = false;
+  function lockPopupHeight() {
+    if (popupHeightLocked) return;
+    popupHeightLocked = true;
+    setTimeout(() => {
+      const container = document.querySelector('.popup-container');
+      if (!container) return;
+      const height = Math.min(600, Math.ceil(container.getBoundingClientRect().height));
+      document.documentElement.style.height = `${height}px`;
+    }, 150);
+  }
+
   // Load state
   chrome.storage.local.get(['tufhub_token', 'tufhub_username', 'tufhub_hook', 'stats', 'tufhub_last_reconcile_result'], async (res) => {
     if (res.tufhub_token && res.tufhub_hook) {
@@ -901,12 +895,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
       checkMilestoneNudge(latestStats);
       checkRepairAnnouncementBanner();
+      lockPopupHeight();
     } else {
       unauthSection.classList.remove('hidden');
       authSection.classList.add('hidden');
       disconnectBtn.classList.add('hidden');
       if (milestoneBanner) milestoneBanner.classList.add('hidden');
       if (repairAnnounceBanner) repairAnnounceBanner.classList.add('hidden');
+      lockPopupHeight();
     }
   });
 
@@ -1108,12 +1104,36 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  const weeklyCheckToggle = document.getElementById('weekly-check-toggle');
+
+  // One line for the weekly read-only check: when it last ran and what it found, pointing at the panels above when there is something to fix.
+  function describeRepoCheck(result, enabled) {
+    if (!result || !result.at) return { text: enabled ? 'weekly, not run yet' : 'off', tone: 'neutral' };
+    const when = timeAgo(result.at);
+    if (!result.ok) return { text: `${when} · check failed, retries soon`, tone: 'amber' };
+    const parts = [];
+    if (result.duplicates) parts.push(`${result.duplicates} duplicate${result.duplicates > 1 ? 's' : ''}`);
+    if (result.needsRepair) parts.push(`${result.needsRepair} to repair`);
+    if (result.readmeOutdated) parts.push('index out of date, click Sync');
+    const suffix = enabled ? '' : ' · weekly check off';
+    return parts.length
+      ? { text: `${when} · ${parts.join(', ')}${suffix}`, tone: 'amber' }
+      : { text: `${when} · all clean${suffix}`, tone: 'good' };
+  }
+
+  if (weeklyCheckToggle) {
+    weeklyCheckToggle.addEventListener('change', () => {
+      chrome.storage.local.set({ tufhub_health_check_enabled: weeklyCheckToggle.checked });
+      renderHealth();
+    });
+  }
+
   async function renderHealth() {
     if (!healthBody) return;
 
     await checkStaleBuild();
 
-    const res = await chrome.storage.local.get(['tufhub_health', 'tufhub_diag']);
+    const res = await chrome.storage.local.get(['tufhub_health', 'tufhub_diag', 'tufhub_health_check_result', 'tufhub_health_check_enabled']);
     const health = res.tufhub_health || {};
     const diag = Array.isArray(res.tufhub_diag) ? res.tufhub_diag : [];
     const probe = await pingActiveTab();
@@ -1181,6 +1201,10 @@ document.addEventListener('DOMContentLoaded', () => {
       healthBody.appendChild(row('Last failure', `${health.lastFailureReason}`.slice(0, 60), 'bad'));
       healthBody.appendChild(row('Failed', timeAgo(health.lastFailureAt), 'bad'));
     }
+
+    const check = describeRepoCheck(res.tufhub_health_check_result, res.tufhub_health_check_enabled !== false);
+    healthBody.appendChild(row('Repo check', check.text, check.tone));
+    if (weeklyCheckToggle) weeklyCheckToggle.checked = res.tufhub_health_check_enabled !== false;
 
     if (healthDetails) {
       healthDetails.replaceChildren();

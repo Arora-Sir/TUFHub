@@ -7,6 +7,7 @@
  * - SQL (SQL & Data Engineering)
  * - Design (OOPS / Low-Level Design, and any future design tracks)
  * - Generic: Any other /practice/<subject>/<slug> route picked up dynamically via classifyPath().
+ * - Saved-list redirects (/practice/core-subject/<slug>?list=...): the segment is a container, so the track comes from TUF's problem_type, then the language.
  *
  * Routes explicitly ignored and skipped (never mis-filed as DSA):
  * - /practice-test/<subject>/... (timed multi-question quiz sets without a single free-response problem)
@@ -17,7 +18,7 @@
  * captureTopicHints() is the only DOM reader here, and content.js calls it once at submit intent on the page being submitted.
  */
 
-import { sanitizePathSegment, hasToken, hasExactToken } from '../util.js';
+import { sanitizePathSegment, hasToken, hasExactToken, isContainerSegment, LANGUAGE_MAP } from '../util.js';
 
 // Maps syllabus sidebar topic labels to canonical folder names for DSA and SQL problems.
 // NOTE: Sidebar auto-highlights active category and sub-category paths on page load.
@@ -105,6 +106,15 @@ export function canonicalizeTopicLabel(label) {
   return label;
 }
 
+/**
+ * Case-insensitive identity of a topic folder, after the same alias mapping the router applies to new topics.
+ * NOTE: "Ranking-And-Top-N-Queries", "Ranking-and-Top-N-Queries", and TUF's own "Ranking and Top N Queries" all share one key, so they are one topic (BUG-020).
+ */
+export function topicKey(label) {
+  const canonical = canonicalizeTopicLabel(String(label || '').trim());
+  return String(canonical || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
 // Resolves ground-truth topic from the cached syllabus API response over DOM scraping or keyword heuristics.
 // Topic strings pass through SIDEBAR_TOPIC_MAP to keep DSA directory names consistent.
 function authoritativeTopic(data) {
@@ -176,7 +186,7 @@ function extractTopicFromPathname(pathname, ignoreKeywords = []) {
 
     for (let i = topicParts.length - 1; i >= 0; i--) {
       const p = topicParts[i].toLowerCase();
-      if (p === 'problems' || p === 'plus' || p === 'practice' || p === 'dsa' || p === 'sql' || p === 'aptitude' || ignoreKeywords.includes(p)) continue;
+      if (p === 'problems' || p === 'plus' || p === 'practice' || p === 'dsa' || p === 'sql' || p === 'aptitude' || isContainerSegment(p) || ignoreKeywords.includes(p)) continue;
 
       return titleCaseSlug(topicParts[i]);
     }
@@ -306,7 +316,7 @@ function classifyPath(pathname) {
   const sub = segments[1] || '';
 
   if (root === 'practice' && sub) {
-    return { type: 'PROBLEM', category: categoryNameFromSegment(sub) };
+    return { type: 'PROBLEM', category: categoryNameFromSegment(sub), segment: sub };
   }
   if (root === 'practice-test') {
     return { type: 'QUIZ' };
@@ -329,14 +339,31 @@ function unsupported(type) {
     mainTopic: null,
     subTopic: null,
     folderPath: null,
-    categoryPath: null
+    categoryPath: null,
+    topicAuthoritative: false
   };
 }
 
 /**
+ * Track for a problem opened through a container segment such as /practice/core-subject/.
+ * TUF's own problem API field problem_type ("sql", "dsa") wins, then the editor language, so an SQL answer lands under SQL even when the API response was missed.
+ * Returns '' when neither signal exists, and the caller then keeps the container category exactly as before.
+ */
+function trackFromSignals(data) {
+  const problemType = String((data && data.problemType) || '').trim().toLowerCase();
+  if (problemType && !isContainerSegment(problemType)) return categoryNameFromSegment(problemType);
+  const raw = data && data.language != null ? String(data.language).trim() : '';
+  const ext = raw ? (LANGUAGE_MAP[raw] || LANGUAGE_MAP[raw.toLowerCase()]) : '';
+  if (ext === 'sql') return 'SQL';
+  if (ext) return 'DSA';
+  return '';
+}
+
+/**
  * Resolves category, topic, subtopic, and folder path for a submission payload.
- * Reads only data.url, data.title, data.syllabusMainTopic/SubTopic, and data.topicHints, never window or document.
+ * Reads only data.url, data.title, data.problemType, data.language, data.syllabusMainTopic/SubTopic, and data.topicHints, never window or document.
  * A payload without a parseable url is unsupported rather than routed by the current tab's address.
+ * topicAuthoritative is true only when the topic came from TUF's syllabus API, which lets the sync job decide whether a known folder may be reused.
  */
 export function resolveHierarchy(data = {}) {
   let urlObj = null;
@@ -353,7 +380,10 @@ export function resolveHierarchy(data = {}) {
     return unsupported(classified.type);
   }
 
-  const category = classified.category;
+  const category = isContainerSegment(classified.segment)
+    ? (trackFromSignals(data) || classified.category)
+    : classified.category;
+  const topicAuthoritative = !!authoritativeTopic(data);
 
   // Slug is derived directly from the URL pathname to ensure stable folder naming across detection channels.
   const slug = pathname.split('/').filter(Boolean).pop() || '';
@@ -390,7 +420,8 @@ export function resolveHierarchy(data = {}) {
       mainTopic: cleanMain,
       subTopic: 'General',
       folderPath: `SQL/${cleanMain}`,
-      categoryPath: `SQL/${cleanMain}`
+      categoryPath: `SQL/${cleanMain}`,
+      topicAuthoritative
     };
   }
 
@@ -412,6 +443,7 @@ export function resolveHierarchy(data = {}) {
     mainTopic: cleanMain,
     subTopic: cleanSub,
     folderPath: `${category}/${cleanMain}`,
-    categoryPath: `${category}/${cleanMain}`
+    categoryPath: `${category}/${cleanMain}`,
+    topicAuthoritative
   };
 }

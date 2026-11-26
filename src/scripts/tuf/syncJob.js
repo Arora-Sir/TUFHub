@@ -7,6 +7,7 @@
 
 import { buildProblemReadme } from './readme.js';
 import { resolveHierarchy } from './router.js';
+import { placeProblem } from './repoLayout.js';
 import {
   classifyDifficulty,
   deriveCodeFileName,
@@ -40,15 +41,18 @@ function resolveDifficulty(difficulty, known) {
  * Returns { job } for a syncable problem, or { skipReason } for pages that carry no code artifact.
  * NOTE: The problem README is left out when the payload has no description and the problem's folder already holds one.
  * NOTE: That keeps a sync from the Submissions panel (where no problem statement is rendered) from overwriting a good README with the placeholder.
+ * NOTE: The folder comes from placeProblem(), so a re-solve from a saved list lands in the problem's existing folder instead of a second copy (BUG-017).
  */
 export function buildSyncJob(payload, stats, source) {
   const route = resolveHierarchy(payload);
   if (route.supported === false) return { skipReason: 'UNSUPPORTED_PAGE_TYPE', route };
 
   const slug = route.slug;
-  const folderPath = `${route.folderPath}/${slug}`;
-  const ext = extensionForLanguage(payload.language, route.category);
-  const known = stats && stats.problems ? stats.problems[slug] || null : null;
+  const problems = stats && stats.problems ? stats.problems : {};
+  const known = problems[slug] || null;
+  const placement = placeProblem(route, known, problems);
+  const folderPath = placement.folderPath;
+  const ext = extensionForLanguage(payload.language, placement.category);
   const title = resolveTitle(payload, known, slug);
   const difficulty = resolveDifficulty(payload.difficulty, known);
   const url = stripUiQueryParams(payload.url);
@@ -65,8 +69,8 @@ export function buildSyncJob(payload, stats, source) {
       slug,
       title,
       difficulty,
-      category: route.category,
-      mainTopic: route.mainTopic,
+      category: placement.category,
+      mainTopic: placement.mainTopic,
       subTopic: route.subTopic,
       folderPath,
       codeFileName: deriveCodeFileName(payload.tabLabel, payload.tabCount, ext),

@@ -4,10 +4,11 @@
  */
 
 import { reconcileRepoFromTree } from './tuf/stats.js';
-import { commitFiles, deleteFiles, mergeAndPruneFolders } from './tuf/uploader.js';
+import { deleteFiles, mergeAndPruneFolders, commitTreeChanges } from './tuf/uploader.js';
 import { enqueueGitHubWrite } from './tuf/writeQueue.js';
 import { acceptSyncJob, applyBadgeState, drainSyncQueue, SYNC_RETRY_ALARM } from './tuf/syncQueue.js';
 import { TUF_CONTENT_SCRIPT_URL } from './util.js';
+import { ensureHealthCheckAlarm, runHealthCheckIfDue, showRestingBadge, HEALTH_CHECK_ALARM } from './tuf/healthCheck.js';
 
 const DEFAULT_CLIENT_ID = ''; // User provides their own OAuth Client ID via the welcome page
 
@@ -18,13 +19,18 @@ const DEFAULT_CLIENT_ID = ''; // User provides their own OAuth Client ID via the
 // NOTE: The alarm is the backstop for retries scheduled further out than the worker's idle lifetime.
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm && alarm.name === SYNC_RETRY_ALARM) drainSyncQueue();
+  if (alarm && alarm.name === HEALTH_CHECK_ALARM) runHealthCheckIfDue({ trigger: 'schedule' }).catch(() => {});
 });
 drainSyncQueue();
+// Weekly read-only repo check: the alarm wakes the worker daily, and the check itself runs only when a week has passed (or right after an update).
+ensureHealthCheckAlarm();
 
 chrome.runtime.onStartup.addListener(() => {
   chrome.storage.local.get(['tufhub_badge'], (res) => {
     if (res && res.tufhub_badge) {
       applyBadgeState(res.tufhub_badge);
+    } else {
+      showRestingBadge();
     }
   });
   reinjectAllOpenTufTabs();
@@ -40,8 +46,30 @@ chrome.runtime.onInstalled.addListener((details) => {
     // Tabs opened before manifest changes would otherwise stay permanently scriptless.
     // This sweep proactively re-injects scripts into all matching open tabs.
     reinjectAllOpenTufTabs();
+    // One check right after an update, so existing users see old duplicates and misplaced folders without waiting a week.
+    runHealthCheckIfDue({ force: true, trigger: 'update' }).catch(() => {});
   }
 });
+
+// A manual Sync or repair ends in a full reconcile, so it restarts the weekly clock and refreshes the Sync Health line.
+// NOTE: The user is looking at the result, so the toolbar count clears with it. Leaving only the stored flag cleared kept a stale "11" on the icon after a per-folder merge.
+function recordManualCheck(result) {
+  if (!result || result.ok === false || result.reason === 'cooldown') return;
+  chrome.action.setBadgeText({ text: '' });
+  chrome.storage.local.set({
+    tufhub_health_check_last_at: Date.now(),
+    tufhub_health_flag: null,
+    tufhub_health_check_result: {
+      at: Date.now(),
+      trigger: 'manual',
+      ok: true,
+      reason: result.reason,
+      duplicates: (result.duplicates || []).length,
+      needsRepair: (result.needsRepair || []).length,
+      readmeOutdated: false
+    }
+  });
+}
 
 // NOTE: Must stay in sync with manifest.json content_scripts[].matches.
 // chrome.tabs.query url filter requires literal glob patterns rather than regex.
@@ -154,7 +182,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.type === 'CLEAR_BADGE') {
-    chrome.storage.local.remove(['tufhub_badge']);
+    // Opening the popup shows the issues themselves, so the weekly health flag clears along with the sync badge.
+    chrome.storage.local.remove(['tufhub_badge', 'tufhub_health_flag']);
+    // A health check that started before this moment must not re-raise a count the user is already looking at.
+    chrome.storage.local.set({ tufhub_health_seen_at: Date.now() });
     chrome.action.setBadgeText({ text: '' });
     sendResponse({ status: 'badge_cleared' });
     return true;
@@ -191,6 +222,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         .then((result) => {
           // A cooldown response carries no duplicates/needsRepair (nothing was actually re-checked), so it must never overwrite the last real result still sitting in storage.
           if (result.reason !== 'cooldown') chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          recordManualCheck(result);
           sendResponse(result);
         })
         .catch((err) => {
@@ -232,6 +264,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       })
         .then((result) => {
           chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          recordManualCheck(result);
           sendResponse(result);
         })
         .catch((err) => {
@@ -274,6 +307,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       })
         .then((result) => {
           chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          recordManualCheck(result);
           sendResponse(result);
         })
         .catch((err) => {
@@ -314,6 +348,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       })
         .then((result) => {
           chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          recordManualCheck(result);
           sendResponse(result);
         })
         .catch((err) => {
@@ -323,83 +358,45 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
 
-  if (request.type === 'RESOLVE_ALL_REPO_ISSUES') {
-    // NOTE: Executes duplicate folder merge and problem repairs in one coordinated GitHub transaction.
-    // NOTE: Runs reconcileRepoFromTree once at the conclusion to save API roundtrips.
-    chrome.storage.local.get(['tufhub_token', 'tufhub_hook', 'stats'], (res) => {
+  if (request.type === 'RESOLVE_ALL_REPO_ISSUES' || request.type === 'REPAIR_PROBLEMS') {
+    // NOTE: Popup builds the whole batch (merge moves, folder relocations, repaired READMEs) and this handler lands it as one commit through commitTreeChanges.
+    // NOTE: Stats are read inside the queued task, not when the message arrives, so a sync that lands while the batch waits in the write queue is not overwritten.
+    chrome.storage.local.get(['tufhub_token', 'tufhub_hook'], (res) => {
       const token = res.tufhub_token;
       const hook = res.tufhub_hook;
       const moves = request.moves || [];
       const deletes = request.deletes || [];
       const files = request.files || [];
       const difficultyUpdates = request.difficultyUpdates || {};
-
-      enqueueGitHubWrite(async () => {
-        if (Object.keys(difficultyUpdates).length > 0) {
-          const currentStats = res.stats || {};
-          const problems = currentStats.problems || {};
-          Object.entries(difficultyUpdates).forEach(([slug, diff]) => {
-            if (problems[slug]) {
-              problems[slug].difficulty = diff;
-            }
-          });
-          await chrome.storage.local.set({ stats: currentStats });
-        }
-
-        if (moves.length > 0 || deletes.length > 0) {
-          await mergeAndPruneFolders(token, hook, { moves, deletes }, 'Merge duplicate folders into newest copies (TUFHub)');
-        }
-
-        if (files.length > 0) {
-          await commitFiles(token, hook, files, `Repair ${files.length} problem README(s): fix difficulty tags and links (TUFHub)`);
-        }
-
-        let result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
-        return result;
-      })
-        .then((result) => {
-          chrome.storage.local.set({ tufhub_last_reconcile_result: result });
-          sendResponse(result);
-        })
-        .catch((err) => {
-          sendResponse({ ok: false, reason: 'error', message: err && err.message });
-        });
-    });
-    return true;
-  }
-
-  if (request.type === 'REPAIR_PROBLEMS') {
-    // NOTE: Problem fetch and README regeneration happen in popup.js with DOMParser.
-    // NOTE: This handler updates cached stats and commits the finished file contents atomically.
-    chrome.storage.local.get(['tufhub_token', 'tufhub_hook', 'stats'], (res) => {
-      const token = res.tufhub_token;
-      const hook = res.tufhub_hook;
-      const files = request.files || [];
-      const difficultyUpdates = request.difficultyUpdates || {};
-      if (files.length === 0 && Object.keys(difficultyUpdates).length === 0) {
-        sendResponse({ ok: false, reason: 'error', message: 'No repaired files to commit.' });
+      if (moves.length === 0 && deletes.length === 0 && files.length === 0 && Object.keys(difficultyUpdates).length === 0) {
+        sendResponse({ ok: false, reason: 'error', message: 'Nothing to commit.' });
         return;
       }
-      const repairedFolders = files.map(f => f.path.replace(/\/README\.md$/, ''));
+      const touchedFolders = new Set(
+        files.map(f => f.path.replace(/\/README\.md$/, ''))
+          .concat(deletes.map(p => p.slice(0, p.lastIndexOf('/'))))
+      );
+      const commitMessage = request.type === 'RESOLVE_ALL_REPO_ISSUES'
+        ? 'Resolve repository issues: merge duplicates, move misplaced folders, repair READMEs (TUFHub)'
+        : `Repair ${files.length + (request.relocatedCount || 0)} problem(s): fix difficulty tags, links, and folder placement (TUFHub)`;
 
       enqueueGitHubWrite(async () => {
         if (Object.keys(difficultyUpdates).length > 0) {
-          const currentStats = res.stats || {};
+          const fresh = await chrome.storage.local.get(['stats']);
+          const currentStats = fresh.stats || {};
           const problems = currentStats.problems || {};
           Object.entries(difficultyUpdates).forEach(([slug, diff]) => {
-            if (problems[slug]) {
-              problems[slug].difficulty = diff;
-            }
+            if (problems[slug]) problems[slug].difficulty = diff;
           });
           await chrome.storage.local.set({ stats: currentStats });
         }
 
-        if (files.length > 0) {
-          await commitFiles(token, hook, files, `Repair ${files.length} problem README(s): fix difficulty tags and links (TUFHub)`);
-        }
+        await commitTreeChanges(token, hook, { moves, files, deletes }, commitMessage);
+
         let result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
-        // Retries once if the tree-read briefly lags the commit that just landed on GitHub.
-        const stillFlagged = (result.needsRepair || []).some(item => repairedFolders.includes(item.folderPath));
+        // Retries once if the tree read briefly lags the commit that just landed on GitHub.
+        const stillFlagged = (result.needsRepair || []).some(item => touchedFolders.has(item.folderPath)) ||
+          (result.duplicates || []).some(d => (d.folders || []).some(f => deletes.some(p => p.startsWith(`${f.folderPath}/`))));
         if (stillFlagged) {
           await new Promise(r => setTimeout(r, 1500));
           result = await reconcileRepoFromTree(token, hook, { skipCooldown: true });
@@ -408,6 +405,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       })
         .then((result) => {
           chrome.storage.local.set({ tufhub_last_reconcile_result: result });
+          recordManualCheck(result);
           sendResponse(result);
         })
         .catch((err) => {

@@ -19,6 +19,7 @@ import {
   updateStats
 } from './stats.js';
 import { enqueueGitHubWrite } from './writeQueue.js';
+import { runHealthCheckIfDue, showRestingBadge } from './healthCheck.js';
 
 export const SYNC_RETRY_ALARM = 'tufhub-sync-retry';
 
@@ -47,9 +48,8 @@ export function applyBadgeState(badgeData) {
   if (state === 'success') {
     chrome.action.setBadgeText({ text: 'OK' });
     chrome.action.setBadgeBackgroundColor({ color: '#22c55e' });
-    setTimeout(() => {
-      chrome.action.setBadgeText({ text: '' });
-    }, 5000);
+    // Falls back to the weekly health flag (or a blank badge) once the OK flash ends.
+    setTimeout(() => { showRestingBadge(); }, 5000);
   } else if (state === 'error') {
     chrome.action.setBadgeText({ text: '!' });
     chrome.action.setBadgeBackgroundColor({ color: '#ef4444' });
@@ -57,7 +57,7 @@ export function applyBadgeState(badgeData) {
     chrome.action.setBadgeText({ text: String(count || 1) });
     chrome.action.setBadgeBackgroundColor({ color: '#f59e0b' });
   } else {
-    chrome.action.setBadgeText({ text: '' });
+    showRestingBadge();
   }
 }
 
@@ -384,6 +384,8 @@ async function reportOutcome(job, outcome, attempts, willRetry, firstFailure) {
     });
     setBadge('success');
     notifyOrigin(job, { state: 'success', commitSha: outcome.commitSha, htmlUrl: outcome.htmlUrl });
+    // The worker is awake and authenticated right after a sync, the cheapest moment for a due weekly check. Never awaited, so it cannot hold up the queue.
+    runHealthCheckIfDue({ trigger: 'after-sync' }).catch(() => {});
     return;
   }
 

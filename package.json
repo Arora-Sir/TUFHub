@@ -1,11 +1,12 @@
 {
   "name": "tufhub",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "Automatically sync your TakeUForward (TUF+) accepted solutions to GitHub.",
   "main": "scripts/background.js",
   "scripts": {
     "build": "webpack --mode production",
-    "watch": "webpack --mode development --watch"
+    "watch": "webpack --mode development --watch",
+    "test": "node --no-warnings --test \"tests/*.test.mjs\""
   },
   "keywords": [
     "takeuforward",

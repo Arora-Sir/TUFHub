@@ -246,6 +246,25 @@ export async function mergeAndPruneFolders(token, hook, { moves = [], deletes = 
   return commitTreeEntries(token, hook, treeEntries, commitMessage, retries);
 }
 
+/**
+ * Applies blob-sha moves, new file contents, and deletions in one commit.
+ * moves are { targetPath, sha }, files are { path, content }, deletes are path strings.
+ * NOTE: A written file wins over a move to the same path (a relocated README that is also being repaired), and a path that is moved to or written is never also deleted.
+ * NOTE: Returns null when there is nothing to change.
+ */
+export async function commitTreeChanges(token, hook, { moves = [], files = [], deletes = [] }, commitMessage, retries = 5) {
+  const written = new Set(files.map(f => f.path));
+  const movedTo = new Set(moves.map(m => m.targetPath));
+  const blobShas = await Promise.all(files.map(file => createBlob(token, hook, file, retries)));
+  const treeEntries = [
+    ...moves.filter(m => !written.has(m.targetPath)).map(m => ({ path: m.targetPath, mode: m.mode || '100644', type: 'blob', sha: m.sha })),
+    ...files.map((file, i) => ({ path: file.path, mode: '100644', type: 'blob', sha: blobShas[i] })),
+    ...deletes.filter(p => !written.has(p) && !movedTo.has(p)).map(p => ({ path: p, mode: '100644', type: 'blob', sha: null }))
+  ];
+  if (treeEntries.length === 0) return null;
+  return commitTreeEntries(token, hook, treeEntries, commitMessage, retries);
+}
+
 export async function uploadToGitHub(token, hook, path, content, commitMessage, sha = '', retries = 3) {
   const url = `https://api.github.com/repos/${hook}/contents/${path}`;
   let currentSha = sha;

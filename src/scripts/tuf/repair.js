@@ -4,6 +4,8 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
+import { classifyDifficulty, parseMarkdownLinks } from '../util.js';
+
 const STALE_URL_PREFIX = 'https://takeuforward.org/plus/';
 
 // TUF moved DSA and SQL problem pages off /plus/<subject>/.../<slug> to /practice/<subject>/<slug> without redirects, so every link using the old prefix is dead.
@@ -57,8 +59,10 @@ const BOX_DRAWING_RE = /[─-╿]/;
 export function detectReadmeIssues(content, cachedProblem = null) {
   const reasons = [];
   const text = content || '';
-  const titleMatch = text.match(/^# \[.*?\]\((.*?)\)/);
-  const url = titleMatch ? titleMatch[1] : '';
+  // Depth-matched link reader, so a TUF URL such as ".../product(s)-for-each-customer?..." is read whole instead of cut at its first ).
+  const firstLine = text.startsWith('# ') ? text.split('\n', 1)[0] : '';
+  const titleLink = parseMarkdownLinks(firstLine)[0];
+  const url = titleLink ? titleLink.href : '';
   if (isStaleUrl(url)) reasons.push('stale_link');
   const outsideFences = text.replace(/```[\s\S]*?```/g, '');
   if (BOX_DRAWING_RE.test(outsideFences)) reasons.push('garbled_content');
@@ -68,15 +72,13 @@ export function detectReadmeIssues(content, cachedProblem = null) {
   const badgeDifficulty = diffMatch ? diffMatch[1] : null;
 
   // Detects unspecified difficulty in README badge or cached problem metadata.
-  const hasUnspecifiedBadge = badgeDifficulty ? badgeDifficulty.toLowerCase() === 'unspecified' : false;
-  const isCachedUnspecified = cachedProblem && (
-    (cachedProblem.difficulty || '').toLowerCase() === 'unspecified' ||
-    cachedProblem.difficulty === '⚪ Unspecified'
-  );
+  // NOTE: Both checks go through classifyDifficulty, so 'undefined', '' and stray labels count as Unspecified too, not only the literal word (BUG-018).
+  const hasUnspecifiedBadge = badgeDifficulty !== null && classifyDifficulty(badgeDifficulty) === 'unspecified';
+  const isCachedUnspecified = !!cachedProblem && classifyDifficulty(cachedProblem.difficulty) === 'unspecified';
 
   if (hasUnspecifiedBadge || (!badgeDifficulty && isCachedUnspecified)) {
     reasons.push('unspecified_difficulty');
   }
 
-  return { needsRepair: reasons.length > 0, reasons, url, badgeDifficulty };
+  return { needsRepair: reasons.length > 0, reasons, url, badgeDifficulty, title: titleLink ? titleLink.text.trim() : '' };
 }

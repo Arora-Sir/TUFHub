@@ -4,8 +4,7 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-
-
+import { isContainerSegment, KNOWN_TRACK_SYLLABUS_KEYS } from '../util.js';
 
 (function () {
   if (window.__TUFHUB_INTERCEPTOR_INITED__) return;
@@ -59,6 +58,10 @@
   let cachedProblemSlug = '';
   let cachedProblemDifficulty = '';
   let cachedProblemDifficultySlug = '';
+  // TUF's own track for the problem ("sql", "dsa") from /api/v2/plus/problem/<slug>, the only signal a saved-list container URL leaves.
+  let cachedProblemType = '';
+  let cachedProblemTypeSlug = '';
+  const requestedSyllabusKeys = new Set();
   let loggedRequestKeys = false;
   let recentlyDispatched = [];
   // The page's last check-submit request (URL and headers), held in memory and not in sessionStorage. Abandoned submissions are polled with it at that same endpoint.
@@ -121,6 +124,26 @@
       map = alias ? syllabusMaps[alias] : null;
     }
     return map ? map.get(slug) || null : null;
+  }
+
+  // Syllabus track for a snapshot: a container URL segment (core-subject) names no syllabus, so TUF's problem_type stands in for it.
+  function syllabusTrack(snapshot) {
+    if (!snapshot) return '';
+    return isContainerSegment(snapshot.track) && snapshot.problemType ? snapshot.problemType : snapshot.track;
+  }
+
+  /**
+   * Loads a track's sheet syllabus when the page itself never will, so a container page still gets the sheet topic.
+   * NOTE: A saved-list page (/practice/core-subject/<slug>?list=...) fetches no syllabus at all (confirmed live), which is what left topics at General.
+   * NOTE: Goes through the wrapped fetch, so processPayload caches the response exactly like a page-initiated syllabus load.
+   */
+  function ensureSyllabusFor(problemType) {
+    const key = KNOWN_TRACK_SYLLABUS_KEYS[problemType];
+    if (!key || requestedSyllabusKeys.has(key) || syllabusMaps[key]) return;
+    requestedSyllabusKeys.add(key);
+    try {
+      window.fetch(`https://backend-go.takeuforward.org/api/v2/syllabus/track?type=source&key=${encodeURIComponent(key)}`, { credentials: 'include' }).catch(() => {});
+    } catch (e) {}
   }
 
   // Fallback title derived from URL slug when no h1 exists on the page (such as the Solution tab).
@@ -382,7 +405,8 @@
     const h1Elem = document.querySelector('h1');
     const h1Title = h1Elem ? (h1Elem.innerText || '').trim() : '';
     const apiTitleFresh = !!cachedProblemTitle && cachedProblemSlug === slug;
-    const syllabusEntry = lookupSyllabus(track, slug);
+    const problemType = cachedProblemType && cachedProblemTypeSlug === slug ? cachedProblemType : '';
+    const syllabusEntry = lookupSyllabus(syllabusTrack({ track, problemType }), slug);
     return {
       token,
       source,
@@ -390,6 +414,7 @@
       url: window.location.href,
       slug,
       track,
+      problemType,
       code: editor.code,
       codeSource: editor.source,
       languageId: editor.languageId,
@@ -409,8 +434,11 @@
   // Fills fields that may have loaded after intent, keyed strictly by the snapshot's own slug and track.
   function refreshSnapshot(snapshot) {
     const s = Object.assign({}, snapshot);
+    if (!s.problemType && cachedProblemType && cachedProblemTypeSlug === s.slug) {
+      s.problemType = cachedProblemType;
+    }
     if (!s.syllabusMainTopic) {
-      const entry = lookupSyllabus(s.track, s.slug);
+      const entry = lookupSyllabus(syllabusTrack(s), s.slug);
       if (entry) {
         s.syllabusMainTopic = entry.mainTopic;
         s.syllabusSubTopic = entry.subTopic;
@@ -809,6 +837,7 @@
         timestamp: Date.now(),
         tabLabel: snap.tabLabel || '',
         tabCount: snap.tabCount || 0,
+        problemType: snap.problemType || '',
         syllabusMainTopic: snap.syllabusMainTopic || '',
         syllabusSubTopic: snap.syllabusSubTopic || '',
         bound
@@ -867,7 +896,7 @@
           let filled = false;
           pending.forEach((p) => {
             if (p.snapshot.syllabusMainTopic) return;
-            const entry = lookupSyllabus(p.snapshot.track, p.snapshot.slug);
+            const entry = lookupSyllabus(syllabusTrack(p.snapshot), p.snapshot.slug);
             if (!entry) return;
             p.snapshot.syllabusMainTopic = entry.mainTopic;
             p.snapshot.syllabusSubTopic = entry.subTopic;
@@ -899,6 +928,22 @@
         if (difficulty) {
           cachedProblemDifficulty = difficulty.trim();
           cachedProblemDifficultySlug = respSlug;
+        }
+        // Only trusted when the response names this page's own slug, since other /problem responses (notes, similar problems) share the URL pattern.
+        const problemType = typeof prob.problem_type === 'string' ? prob.problem_type.trim().toLowerCase() : '';
+        const typeSlug = typeof prob.problem_slug === 'string' ? prob.problem_slug.toLowerCase() : '';
+        if (problemType && typeSlug && typeSlug === String(respSlug).toLowerCase()) {
+          cachedProblemType = problemType;
+          cachedProblemTypeSlug = respSlug;
+          let filled = false;
+          pending.forEach((p) => {
+            if (p.snapshot.problemType || p.snapshot.slug !== respSlug) return;
+            p.snapshot.problemType = problemType;
+            filled = true;
+            dispatchSnapshot(p);
+          });
+          if (filled) savePending();
+          if (isContainerSegment(currentTrackKey())) ensureSyllabusFor(problemType);
         }
         console.log('[TUFHub Interceptor] 📝 Cached problem metadata:', { title: cachedProblemTitle, slug: cachedProblemSlug, descLength: cachedProblemDescription.length });
       } catch (e) {}

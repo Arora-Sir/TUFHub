@@ -7,6 +7,20 @@
 // Shared utility constant to prevent duplicate regex patterns across background.js and popup.js.
 export const TUF_CONTENT_SCRIPT_URL = /^https:\/\/(?:[a-z0-9-]+\.)*takeuforward\.org\/(practice|practice-test|learning)\//i;
 
+// URL segments TUF uses as redirect buckets for saved-list items (/practice/<container>/<slug>?list=...), never as a problem's own track.
+// NOTE: Confirmed live on 2026-11-25: every item of an SQL saved list redirects through contentType "core-subject", so the segment says nothing about the track.
+export const CONTAINER_TRACK_SEGMENTS = ['core-subject'];
+
+// Accepts a URL segment ('core-subject') or the category folder name built from it ('Core-Subject').
+export function isContainerSegment(segment) {
+  return CONTAINER_TRACK_SEGMENTS.includes(String(segment || '').toLowerCase());
+}
+
+// Sheet syllabus key per track, fetched when a problem is opened outside its own sheet page and the page never loads that syllabus itself.
+export const KNOWN_TRACK_SYLLABUS_KEYS = {
+  sql: 'sql---75-frequently-asked-interview-questions'
+};
+
 /**
  * TUF's revamped site tags problems Basic / Core / Pro instead of the classic Easy / Medium / Hard.
  * Bridges both vocabularies to a unified bucket so existing and newly synced problems tally and color-code together.
@@ -91,11 +105,11 @@ export function titleFromSlug(slug) {
     .join(' ');
 }
 
-// Drops the panel-state param (tab=submissions, tab=problem) so a saved problem link does not depend on which panel was open at submit time.
+// Drops UI-state params (open panel, saved list, sidebar toggle) so a saved problem link does not depend on how the problem was opened at submit time.
 export function stripUiQueryParams(url) {
   try {
     const parsed = new URL(url);
-    parsed.searchParams.delete('tab');
+    ['tab', 'list', 'sidebar'].forEach(param => parsed.searchParams.delete(param));
     return parsed.toString();
   } catch (e) {
     return url || '';
@@ -171,6 +185,70 @@ export function deriveFileLabel(tabLabel, tabCount, ext) {
 export function normalizeReadmeForCompare(content) {
   if (!content) return '';
   return content.replace(/`\d{4}-\d{2}-\d{2}`/, '`DATE`');
+}
+
+/**
+ * Percent-encodes each segment of a repo-relative path for a Markdown link destination.
+ * NOTE: encodeURIComponent leaves ( and ) alone, and TUF slugs such as "most-frequently-ordered-product(s)-for-each-customer" carry them.
+ * NOTE: A raw parenthesis is legal on GitHub only while balanced, and any lazy link reader stops at the first ), so both are always encoded here.
+ */
+export function encodeRepoPath(path) {
+  return String(path || '')
+    .split('/')
+    .map(segment => encodeURIComponent(segment).replace(/\(/g, '%28').replace(/\)/g, '%29'))
+    .join('/');
+}
+
+/**
+ * Reads every [text](href) Markdown link in a string, matching parentheses inside the destination by depth.
+ * Returns hrefs exactly as written, so callers decide whether to decode them.
+ * NOTE: A lazy /\[(.*?)\]\((.*?)\)/ stops at the first ), which turned "product(s)-for-each-customer" into a phantom "product(s" problem (BUG-019).
+ * NOTE: An unbalanced destination is skipped rather than truncated, so a broken row is never read back as a real problem.
+ */
+export function parseMarkdownLinks(text) {
+  const s = String(text || '');
+  const links = [];
+  let from = 0;
+  while (from < s.length) {
+    const mid = s.indexOf('](', from);
+    if (mid === -1) break;
+    const open = s.lastIndexOf('[', mid);
+    let depth = 1;
+    let end = mid + 2;
+    for (; end < s.length && depth > 0; end++) {
+      if (s[end] === '(') depth++;
+      else if (s[end] === ')') depth--;
+    }
+    if (depth !== 0) break;
+    if (open >= from) links.push({ text: s.slice(open + 1, mid), href: s.slice(mid + 2, end - 1) });
+    from = end;
+  }
+  return links;
+}
+
+/**
+ * Decodes a repo-relative link destination back to its raw path, segment by segment, tolerating malformed escapes.
+ * NOTE: Decodes up to three times, because a v2.4.0 build that read an encoded link without decoding wrote "%28" back as "%2528", and that row must still resolve to the real folder.
+ * NOTE: Repo folder names never contain a literal %, so repeated decoding cannot corrupt a real name.
+ */
+export function decodeRepoPath(href) {
+  return String(href || '')
+    .replace(/^\.\//, '')
+    .split('/')
+    .map(segment => {
+      let out = segment;
+      for (let i = 0; i < 3 && out.includes('%'); i++) {
+        try {
+          const next = decodeURIComponent(out);
+          if (next === out) break;
+          out = next;
+        } catch (e) {
+          break;
+        }
+      }
+      return out;
+    })
+    .join('/');
 }
 
 export function encode(str) {

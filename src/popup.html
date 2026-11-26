@@ -94,7 +94,7 @@
           <button id="copy-merge-btn" class="profile-cta secondary-btn dup-grid-btn" title="Copy Git commands to merge and prune folders locally">
             📋 Copy Merge
           </button>
-          <button id="merge-all-duplicates-btn" class="profile-cta secondary-btn dup-grid-btn merge-highlight-btn" title="Merge all duplicates into newest copy in GitHub">
+          <button id="merge-all-duplicates-btn" class="profile-cta secondary-btn dup-grid-btn merge-highlight-btn" title="Merge all duplicates into the kept (★) copy in GitHub">
             Merge all (keep ★)
           </button>
           <button id="copy-duplicates-btn" class="profile-cta secondary-btn dup-grid-btn" title="Copy Git rm commands to delete stale folders locally">
@@ -131,6 +131,10 @@
         <div id="stale-build-banner" class="hidden" style="margin-top: 8px; padding: 8px 10px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 6px; color: #f87171; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; word-break: break-word;"></div>
         <div id="health-body" style="margin-top: 10px; font-size: 11px; line-height: 1.75; overflow-wrap: anywhere; word-break: break-word;"></div>
         <div id="health-details" class="hidden" style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255, 255, 255, 0.1); font-size: 11px; line-height: 1.75; overflow-wrap: anywhere; word-break: break-word;"></div>
+        <label for="weekly-check-toggle" title="Once a week TUFHub reads your repo (never writes) and flags duplicates, misplaced folders, and problems that need repair. Fixing is always your click." style="display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; cursor: pointer; opacity: 0.85;">
+          <input type="checkbox" id="weekly-check-toggle" checked style="accent-color: #f97316; margin: 0; cursor: pointer;">
+          <span>Weekly repo check (read-only)</span>
+        </label>
         <div style="display: flex; gap: 6px; margin-top: 10px;">
           <button id="toggle-details-btn" class="profile-cta secondary-btn" style="flex: 1; padding: 6px 8px; font-size: 11px;">
             Show details

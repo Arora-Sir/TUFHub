@@ -370,6 +370,7 @@ function payloadFromIntent(intent) {
       url: snap.url || intent.url,
       tabLabel: snap.tabLabel,
       tabCount: snap.tabCount,
+      problemType: snap.problemType || '',
       syllabusMainTopic: snap.syllabusMainTopic || '',
       syllabusSubTopic: snap.syllabusSubTopic || '',
       topicHints: intent.hints

@@ -30,13 +30,12 @@ html, body {
   font-size: 15px;
 }
 
-/* An unconditional fixed height ensures the popup frame is measured once at first paint and never resizes dynamically.
+/* The frame sizes to its first-render content, then popup.js locks that height once (lockPopupHeight), so later expansions scroll inside instead of resizing.
    Dynamic resizing causes Chromium browsers to reposition the popup frame on screen, creating noticeable UI jumping.
-   The 512px height provides a baseline (506px measured default view) plus a minimal buffer for variable username and counter lengths.
-   That buffer was trimmed down from an earlier, more generous value after user feedback that the extra bottom padding still looked excessive.
-   Optional panels like Sync Health and Duplicates are temporary interaction states that scroll internally without repositioning the popup. */
+   A hardcoded 512px left about 77px of dead space under the footer once optional banners became hidden by default (BUG-016), and any smaller constant risks a scrollbar where fonts render taller.
+   600px is Chromium's own popup height cap. */
 html {
-  height: 512px;
+  max-height: 600px;
   overflow-y: auto;
 }
 

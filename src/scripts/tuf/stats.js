@@ -3,10 +3,11 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-import { decode, normalizeReadmeForCompare, classifyDifficulty, mapWithConcurrency } from '../util.js';
+import { decode, normalizeReadmeForCompare, classifyDifficulty, mapWithConcurrency, parseMarkdownLinks, decodeRepoPath, isContainerSegment, titleFromSlug } from '../util.js';
 import { ghGet, uploadToGitHub } from './uploader.js';
 import { generateRootReadmeMarkdown } from './rootReadme.js';
 import { detectReadmeIssues } from './repair.js';
+import { findTopicSplits } from './repoLayout.js';
 
 export const DIAG_LIMIT = 50;
 
@@ -332,9 +333,10 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
           if (line.startsWith('|') && !line.includes('Total Solved') && !line.includes('Title') && !line.includes(':---')) {
             const cols = line.split('|').map(c => c.trim()).filter(Boolean);
             if (cols.length >= 4) {
-              const titleMatch = cols[1]?.match(/\[(.*?)\]\((.*?)\)/);
-              const title = titleMatch ? titleMatch[1] : cols[1];
-              const folderPath = titleMatch ? titleMatch[2].replace('./', '') : '';
+              // Balanced-parenthesis link reader: a lazy regex stopped at the ) inside "product(s)" and invented a phantom problem (BUG-019).
+              const titleLink = parseMarkdownLinks(cols[1])[0] || null;
+              const title = titleLink ? titleLink.text : cols[1];
+              const folderPath = titleLink ? decodeRepoPath(titleLink.href) : '';
               const slug = folderPath ? folderPath.split('/').pop() : '';
 
               const diffText = cols[3] || 'Unspecified';
@@ -353,17 +355,16 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
                 const subTopic = parts.length > 3 ? parts[2] : 'General';
 
                 const solCol = cols[2] || '';
-                const solMatches = [...solCol.matchAll(/\[(.*?)\]\((.*?)\)/g)];
+                const solMatches = parseMarkdownLinks(solCol);
                 const languages = {};
                 // Rebuilt from each file's own name (as reconcile does), since the README generator renders `files` labels verbatim and without this map falls back to uppercased extension labels ("Brute" turning into "BRUTE").
                 const files = {};
                 let primaryCodeFileName = '';
 
                 solMatches.forEach(m => {
-                  const label = m[1].toLowerCase();
-                  const link = m[2];
-                  let fileName = link ? link.split('/').pop() : '';
-                  try { fileName = decodeURIComponent(fileName); } catch (e) {}
+                  const label = m.text.toLowerCase();
+                  const link = m.href;
+                  const fileName = link ? decodeRepoPath(link).split('/').pop() : '';
                   if (fileName && fileName !== 'undefined') {
                     languages[label] = fileName;
                     files[fileName] = { ext: fileName.includes('.') ? fileName.split('.').pop() : 'code', label: labelFromFileName(fileName) };
@@ -383,10 +384,15 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
                 // Renders as null (hyphen) only when unknown, which accurately indicates historical status.
                 const dateCol = cols[5] ? cols[5].replace(/[`\s]/g, '') : '';
                 const parsedDate = (dateCol && dateCol !== '-') ? new Date(dateCol).getTime() : null;
-                const priorUpdatedAt = stats.problems[slug] ? stats.problems[slug].updatedAt : null;
+                const prior = stats.problems[slug] || null;
+                const priorUpdatedAt = prior ? prior.updatedAt : null;
+                // NOTE: The index can be older than this cache (another browser wrote it), so an Unspecified cell never overwrites a difficulty this browser already knows (BUG-018).
+                // NOTE: Spreading the prior entry keeps readmeSha and repair flags, so reconcile still knows which READMEs it has already checked.
+                const keepPriorDifficulty = prior && classifyDifficulty(difficulty) === 'unspecified' && classifyDifficulty(prior.difficulty) !== 'unspecified';
                 stats.problems[slug] = {
+                  ...(prior || {}),
                   title,
-                  difficulty,
+                  difficulty: keepPriorDifficulty ? prior.difficulty : difficulty,
                   mainTopic,
                   subTopic,
                   folderPath,
@@ -501,13 +507,11 @@ async function fetchLastCommitDate(token, hook, path) {
  * NOTE: SHA-gated so a README already checked at its current content is never re-fetched: content only changes on a commit, and this reconcile pass already sees each blob's current sha for free from the tree it just read.
  * Non-fatal on failure: falls back to the last known verdict for this slug, same as fetchLastCommitDate, so one bad fetch cannot break reconcile for every other problem.
  */
-async function scanReadmeForRepair(token, hook, folderPath, readmeSha, cached) {
-  const isUnspecified = cached && (
-    (cached.difficulty || '').toLowerCase() === 'unspecified' ||
-    cached.difficulty === '⚪ Unspecified'
-  );
+async function scanReadmeForRepair(token, hook, folderPath, readmeSha, cached, forceRead = false) {
+  // classifyDifficulty covers '', 'undefined', '⚪ Unspecified', and stray header labels, which a literal 'unspecified' check let through unread (BUG-018).
+  const isUnspecified = !!cached && classifyDifficulty(cached.difficulty) === 'unspecified';
 
-  if (cached && cached.readmeSha === readmeSha && !isUnspecified && !cached.needsRepair) {
+  if (cached && cached.readmeSha === readmeSha && !isUnspecified && !cached.needsRepair && !forceRead) {
     return { readmeSha, needsRepair: false, repairReasons: [] };
   }
   try {
@@ -515,8 +519,8 @@ async function scanReadmeForRepair(token, hook, folderPath, readmeSha, cached) {
     if (!res.ok) return { readmeSha, needsRepair: false, repairReasons: [] };
     const json = await res.json();
     const content = decode(json.content);
-    const { needsRepair, reasons, badgeDifficulty } = detectReadmeIssues(content, cached);
-    return { readmeSha, needsRepair, repairReasons: reasons, badgeDifficulty };
+    const { needsRepair, reasons, badgeDifficulty, title } = detectReadmeIssues(content, cached);
+    return { readmeSha, needsRepair, repairReasons: reasons, badgeDifficulty, readmeTitle: title };
   } catch (e) {
     return cached
       ? { readmeSha: cached.readmeSha, needsRepair: !!cached.needsRepair, repairReasons: cached.repairReasons || [] }
@@ -542,11 +546,27 @@ function labelFromFileName(fileName) {
  * NOTE: Title-based folder names from v1.x carry a 4-digit number prefix ("0047-profitable-customers-in-2021"), and some URL slugs differ from them only by a trailing hyphen.
  * NOTE: Only an exact 4-digit prefix is stripped, because addLeadingZeros() only ever produced that form, so a real TUF slug such as "4-sum" keeps its number.
  */
+/**
+ * True when a cached title is only a guess built from the folder slug, not the problem's real title.
+ * NOTE: A v2.4.0 reconcile on a browser without the title cached stored "Most Frequently Ordered Product(S) For Each Customer", so such titles are re-read once from the problem README.
+ */
+export function isSlugGuessTitle(title, slug) {
+  const t = String(title || '');
+  if (!t) return true;
+  const capitalized = String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  return t === capitalized || t === titleFromSlug(slug) || t === String(slug || '').replace(/-/g, ' ').toUpperCase();
+}
+
 export function duplicateKey(slug) {
   return String(slug || '').toLowerCase().replace(/^\d{4}-/, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
 }
 
-export async function reconcileRepoFromTree(token, hook, { skipCooldown = false } = {}) {
+/**
+ * Rebuilds local stats from the live repo tree and lists duplicates and problems that need repair.
+ * With dryRun the repo is never written: stats are refreshed locally and the result says whether the root README index is out of date (readmeOutdated).
+ * NOTE: dryRun backs the weekly health check, which must stay read-only because nobody is watching when it runs.
+ */
+export async function reconcileRepoFromTree(token, hook, { skipCooldown = false, dryRun = false } = {}) {
   if (!token || !hook) return { ok: false, reason: 'error', message: 'Not connected.' };
 
   if (!skipCooldown) {
@@ -646,17 +666,25 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
     const primaryCodePath = (entry.files && entry.files[0]) ? `${folderPath}/${entry.files[0].name}` : folderPath;
     const [realUpdatedAt, repair] = await Promise.all([
       fetchLastCommitDate(token, hook, primaryCodePath),
-      scanReadmeForRepair(token, hook, folderPath, entry.readmeSha, cached)
+      // A slug-guessed title gets one README read per README version, so a real title is recovered without re-reading every README on every Sync.
+      scanReadmeForRepair(token, hook, folderPath, entry.readmeSha, cached, !!cached && isSlugGuessTitle(cached.title, slug) && cached.titleCheckedSha !== entry.readmeSha)
     ]);
+    // Stats are keyed by slug, so when a container copy (Core-Subject/...) and a real track copy coexist, the index row always points at the real track copy.
+    const prev = reconciledProblems[slug];
+    if (prev && !isContainerSegment(String(prev.folderPath || '').split('/')[0]) && isContainerSegment(parts[0])) return;
     if (cached) {
       // Known to this browser: retain locally cached title and category metadata, refreshing only file listings and commit timestamps.
       // NOTE: Cached metadata is richer than tree path fragments, while GitHub commit dates prevent timestamp drift.
+      // The problem README badge is what the repo actually shows, so a real badge always beats a stale cached value.
       let resolvedDiff = cached.difficulty;
-      if (repair.badgeDifficulty && repair.badgeDifficulty.toLowerCase() !== 'unspecified') {
+      if (repair.badgeDifficulty && classifyDifficulty(repair.badgeDifficulty) !== 'unspecified') {
         resolvedDiff = repair.badgeDifficulty;
       }
+      const restoreTitle = repair.readmeTitle && isSlugGuessTitle(cached.title, slug);
       reconciledProblems[slug] = {
         ...cached,
+        title: restoreTitle ? repair.readmeTitle : cached.title,
+        titleCheckedSha: repair.readmeTitle ? repair.readmeSha : cached.titleCheckedSha,
         difficulty: resolvedDiff,
         folderPath,
         files,
@@ -669,11 +697,12 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
       // Unknown to this browser (e.g. fresh install, cleared storage, or different machine).
       // NOTE: Uses placeholder metadata derived from path structure to avoid an expensive API call per unknown problem folder.
       let resolvedDiff = 'Medium';
-      if (repair.badgeDifficulty && repair.badgeDifficulty.toLowerCase() !== 'unspecified') {
+      if (repair.badgeDifficulty && classifyDifficulty(repair.badgeDifficulty) !== 'unspecified') {
         resolvedDiff = repair.badgeDifficulty;
       }
       reconciledProblems[slug] = {
-        title: slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        title: repair.readmeTitle || slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        titleCheckedSha: repair.readmeTitle ? repair.readmeSha : '',
         difficulty: resolvedDiff,
         folderPath,
         codeFileName: entry.files[0].name,
@@ -705,6 +734,32 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
   const needsRepair = Object.entries(reconciledProblems)
     .filter(([, p]) => p.needsRepair)
     .map(([slug, p]) => ({ slug, folderPath: p.folderPath, title: p.title || slug, reasons: p.repairReasons || [] }));
+
+  // Layout issues are recomputed from the tree on every reconcile and never stored on the problem, so they disappear as soon as the folder moves.
+  // NOTE: split_topic_folder carries its destination already. misfiled_track (a folder under a container such as Core-Subject with no twin elsewhere) gets its destination at repair time, from TUF's problem_type and syllabus.
+  const duplicateFolders = new Set(duplicates.flatMap(d => d.folders.map(f => f.folderPath)));
+  const problemFolders = Array.from(folders.entries())
+    .filter(([, e]) => e.hasReadme && e.files.length > 0)
+    .map(([folderPath]) => folderPath);
+  const layoutIssues = findTopicSplits(problemFolders, duplicateFolders)
+    .map(({ folderPath, relocateTo }) => ({ folderPath, relocateTo, reason: 'split_topic_folder' }))
+    .concat(problemFolders
+      .filter(fp => isContainerSegment(fp.split('/')[0]) && !duplicateFolders.has(fp))
+      .map(folderPath => ({ folderPath, relocateTo: '', reason: 'misfiled_track' })));
+  layoutIssues.forEach(({ folderPath, relocateTo, reason }) => {
+    const entry = folders.get(folderPath) || { files: [] };
+    const slug = folderPath.split('/').pop();
+    let item = needsRepair.find(i => i.folderPath === folderPath);
+    if (!item) {
+      const p = reconciledProblems[slug];
+      item = { slug, folderPath, title: (p && p.title) || slug, reasons: [] };
+      needsRepair.push(item);
+    }
+    item.reasons = item.reasons.concat(reason);
+    item.relocateTo = relocateTo;
+    item.fileDetails = entry.files;
+    item.readmeSha = entry.readmeSha || '';
+  });
 
   const solvedSlugs = Object.keys(reconciledProblems);
   const counts = { solved: solvedSlugs.length, easy: 0, medium: 0, hard: 0 };
@@ -772,6 +827,12 @@ export async function reconcileRepoFromTree(token, hook, { skipCooldown = false 
 
   const unchanged = existingContent &&
     normalizeReadmeForCompare(generatedContent) === normalizeReadmeForCompare(existingContent);
+
+  if (dryRun) {
+    // Local cache only. The index rewrite waits for the user's own Sync or the next solved problem.
+    await safeSetStorage({ stats: reconciledStats, tufhub_code_hashes: purgedHashes });
+    return { ok: true, reason: 'checked', stats: reconciledStats, duplicates, needsRepair, readmeOutdated: !unchanged };
+  }
 
   if (unchanged) {
     await safeSetStorage({ stats: reconciledStats, tufhub_code_hashes: purgedHashes });

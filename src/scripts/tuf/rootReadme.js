@@ -3,7 +3,7 @@
  * Author: Mohit Arora (@Arora-Sir)
  */
 
-import { decode, normalizeReadmeForCompare, classifyDifficulty, hasToken } from '../util.js';
+import { decode, normalizeReadmeForCompare, classifyDifficulty, hasToken, encodeRepoPath } from '../util.js';
 import { ghGet } from './uploader.js';
 import { canonicalizeTopicLabel } from './router.js';
 
@@ -89,7 +89,8 @@ export function generateRootReadmeMarkdown(stats) {
 
       items.forEach((p, idx) => {
         const numStr = (idx + 1).toString().padStart(4, '0');
-        const folderUrl = `./${p.folderPath.split('/').map(encodeURIComponent).join('/')}`;
+        // encodeRepoPath also escapes ( and ), which a slug like "product(s)-for-each-customer" carries (BUG-019).
+        const folderUrl = `./${encodeRepoPath(p.folderPath)}`;
 
         // Difficulty values are normalized to classic Easy, Medium, and Hard buckets for table consistency.
         const diffBucket = classifyDifficulty(p.difficulty);
@@ -108,7 +109,7 @@ export function generateRootReadmeMarkdown(stats) {
         if (fileNames.length > 0) {
           // Generates distinct solution links labeled by tab name (e.g. Brute, Optimal) to preserve multi-tab strategies.
           solutionLinks = fileNames.map(fileName => {
-            const fileUrl = `${folderUrl}/${encodeURIComponent(fileName)}`;
+            const fileUrl = `${folderUrl}/${encodeRepoPath(fileName)}`;
             return `[${files[fileName].label}](${fileUrl})`;
           }).join(' ');
         } else {
@@ -119,13 +120,13 @@ export function generateRootReadmeMarkdown(stats) {
           if (langExts.length > 0) {
             solutionLinks = langExts.map(ext => {
               const fileName = languages[ext];
-              const fileUrl = `${folderUrl}/${encodeURIComponent(fileName)}`;
+              const fileUrl = `${folderUrl}/${encodeRepoPath(fileName)}`;
               return `[${ext.toUpperCase()}](${fileUrl})`;
             }).join(' ');
           } else {
             const safeFile = (p.codeFileName && p.codeFileName !== 'undefined') ? p.codeFileName : 'solution.java';
             const ext = safeFile.split('.').pop() || 'java';
-            const fileUrl = `${folderUrl}/${encodeURIComponent(safeFile)}`;
+            const fileUrl = `${folderUrl}/${encodeRepoPath(safeFile)}`;
             solutionLinks = `[${ext.toUpperCase()}](${fileUrl})`;
           }
         }
