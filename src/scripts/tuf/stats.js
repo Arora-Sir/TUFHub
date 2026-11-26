@@ -333,7 +333,7 @@ export async function scanAndSyncRepoStats(token, hook, force = false) {
           if (line.startsWith('|') && !line.includes('Total Solved') && !line.includes('Title') && !line.includes(':---')) {
             const cols = line.split('|').map(c => c.trim()).filter(Boolean);
             if (cols.length >= 4) {
-              // Balanced-parenthesis link reader: a lazy regex stopped at the ) inside "product(s)" and invented a phantom problem (BUG-019).
+              // Reads links by parenthesis depth, because a lazy regex stopped at the ) inside "product(s)" and invented a phantom problem (BUG-019).
               const titleLink = parseMarkdownLinks(cols[1])[0] || null;
               const title = titleLink ? titleLink.text : cols[1];
               const folderPath = titleLink ? decodeRepoPath(titleLink.href) : '';
@@ -563,7 +563,7 @@ export function duplicateKey(slug) {
 
 /**
  * Rebuilds local stats from the live repo tree and lists duplicates and problems that need repair.
- * With dryRun the repo is never written: stats are refreshed locally and the result says whether the root README index is out of date (readmeOutdated).
+ * With dryRun the repo is never written. Stats are refreshed locally, and readmeOutdated says whether the root README index is out of date.
  * NOTE: dryRun backs the weekly health check, which must stay read-only because nobody is watching when it runs.
  */
 export async function reconcileRepoFromTree(token, hook, { skipCooldown = false, dryRun = false } = {}) {

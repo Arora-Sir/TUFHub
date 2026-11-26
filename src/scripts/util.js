@@ -8,7 +8,7 @@
 export const TUF_CONTENT_SCRIPT_URL = /^https:\/\/(?:[a-z0-9-]+\.)*takeuforward\.org\/(practice|practice-test|learning)\//i;
 
 // URL segments TUF uses as redirect buckets for saved-list items (/practice/<container>/<slug>?list=...), never as a problem's own track.
-// NOTE: Confirmed live on 2026-11-25: every item of an SQL saved list redirects through contentType "core-subject", so the segment says nothing about the track.
+// NOTE: Every item of an SQL saved list redirects through contentType "core-subject" (confirmed live on 2026-11-25), so the segment says nothing about the track.
 export const CONTAINER_TRACK_SEGMENTS = ['core-subject'];
 
 // Accepts a URL segment ('core-subject') or the category folder name built from it ('Core-Subject').

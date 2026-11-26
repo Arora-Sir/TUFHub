@@ -22,7 +22,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm && alarm.name === HEALTH_CHECK_ALARM) runHealthCheckIfDue({ trigger: 'schedule' }).catch(() => {});
 });
 drainSyncQueue();
-// Weekly read-only repo check: the alarm wakes the worker daily, and the check itself runs only when a week has passed (or right after an update).
+// The weekly read-only repo check alarm wakes the worker daily. The check itself runs only when a week has passed or right after an update.
 ensureHealthCheckAlarm();
 
 chrome.runtime.onStartup.addListener(() => {

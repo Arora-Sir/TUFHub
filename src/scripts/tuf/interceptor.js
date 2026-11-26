@@ -126,7 +126,7 @@ import { isContainerSegment, KNOWN_TRACK_SYLLABUS_KEYS } from '../util.js';
     return map ? map.get(slug) || null : null;
   }
 
-  // Syllabus track for a snapshot: a container URL segment (core-subject) names no syllabus, so TUF's problem_type stands in for it.
+  // A container URL segment (core-subject) names no syllabus, so TUF's problem_type stands in as the snapshot's syllabus track.
   function syllabusTrack(snapshot) {
     if (!snapshot) return '';
     return isContainerSegment(snapshot.track) && snapshot.problemType ? snapshot.problemType : snapshot.track;

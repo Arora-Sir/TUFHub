@@ -85,7 +85,7 @@ Commits code solutions with clean folder hierarchy, language extensions, and for
 - **Auto-Sync on 100% Pass**: Only commits accepted solutions; ignores failing attempts.
 - **Multi-Tab Solution Sync**: Keep separate TUF+ tabs for bruteforce/better/optimal? Each open tab (2+) syncs as its own file instead of overwriting the last: `Solution-1.ext`/`Solution-2.ext` for default tabs, or your own tab name (e.g. `Optimal.java`) if you renamed it. A renamed single tab is honored the same way even without opening a second one.
 - **Verifiable Sync Proof**: Success toasts show the short commit SHA and a clickable `[View commit]` link directly to GitHub.
-- **Toolbar Status Badges**: Toolbar icon shows Green `OK` on success, Red `!` on error, and Amber count for queued offline syncs.
+- **Toolbar Status Badges**: Toolbar icon shows Green `OK` on success, Red `!` on error, Amber count for queued offline syncs, and a Blue count when the weekly repo check finds something to fix.
 - **Multi-Category Organization**: Categorizes problems under DSA, SQL, and Design (OOPS/LLD). It automatically picks up any new practice category TakeUForward adds later under the same URL pattern, with no update required.
 - **Smart Folder Hierarchy**: Dynamically resolves subtopics and problem slugs.
 - **SPA Route Protection**: Automatically re-arms content scripts on TUF+ single-page navigation (no manual refresh needed).
@@ -94,6 +94,8 @@ Commits code solutions with clean folder hierarchy, language extensions, and for
 - **Live Extension Popup**: Tracks Solved, Easy, Medium, Hard counts with a 1-click **Sync** button that reconciles against the actual repository tree. If you delete a problem folder on GitHub, Sync removes it from the master index too, not just from your local view.
 - **Milestone Nudges**: A small, dismissible banner marks every 10 problems solved and points to the Support section below. TUFHub stays 100% free either way; it never blocks or gates any feature.
 - **Sync Health Panel**: Real-time tab hook status, last successful commit link, and a 50-event diagnostic log in the popup.
+- **Weekly Repo Check**: Once a week TUFHub reads your repository (it never writes) and lists duplicate folders, misplaced folders, and rows that need repair in the popup. Fixing is always one click on **Fix & Merge All** or **Repair all**, and the check can be turned off in Sync Health.
+- **Saved-List Aware**: Problems opened from your TUF saved lists sync into the same `SQL/<topic>/` or `DSA/<topic>/` folder as the sheet itself, never a separate Core-Subject folder.
 - **Conflict-Safe Commits**: Sequential queue prevents Git 409 commit conflicts.
 - **Self-Healing Sync Queue**: Queues syncs when offline, or when GitHub itself briefly lags right after a write, and flushes automatically, with no resubmitting and no manual retry.
 

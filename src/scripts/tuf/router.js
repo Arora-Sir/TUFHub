@@ -7,7 +7,7 @@
  * - SQL (SQL & Data Engineering)
  * - Design (OOPS / Low-Level Design, and any future design tracks)
  * - Generic: Any other /practice/<subject>/<slug> route picked up dynamically via classifyPath().
- * - Saved-list redirects (/practice/core-subject/<slug>?list=...): the segment is a container, so the track comes from TUF's problem_type, then the language.
+ * - Saved-list redirects (/practice/core-subject/<slug>?list=...) use a container segment, so the track comes from TUF's problem_type, then the language.
  *
  * Routes explicitly ignored and skipped (never mis-filed as DSA):
  * - /practice-test/<subject>/... (timed multi-question quiz sets without a single free-response problem)

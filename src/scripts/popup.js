@@ -87,12 +87,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let repoHook = ''; // set once auth state loads below, reused in the delete confirm dialog
 
-  // Orders a duplicate group with the copy to keep first: a real track folder (DSA, SQL) before the General bucket or a Core-Subject container, then newest.
-  // NOTE: Same order as computeMergePlan() in repoLayout.js, so the ★ row is always the folder a merge keeps.
-  function sortNewestFirst(folders) {
-    return mergeOrder(folders);
-  }
-
   // Names the solution files that exist only in this folder, so a duplicate cleanup never drops a solution the other copies lack without saying so.
   function filesOnlyIn(folder, otherFolders) {
     const nameOf = path => path.split('/').pop();
@@ -150,8 +144,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       entry.appendChild(headerRow);
 
-      // Newest commit first: the newer folder reflects current categorization, while older copies predate it.
-      const sortedFolders = sortNewestFirst(folders);
+      // The kept copy comes first, in the same order computeMergePlan() uses, so the ★ row is always the folder a merge keeps.
+      const sortedFolders = mergeOrder(folders);
 
       sortedFolders.forEach(({ folderPath, files, lastModified }, i) => {
         const folderBlock = document.createElement('div');
@@ -293,7 +287,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await chrome.storage.local.get(['tufhub_last_reconcile_result']);
       const duplicates = (res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.duplicates) || [];
       const lines = duplicates.flatMap(({ slug, folders }) => {
-        const sorted = sortNewestFirst(folders || []);
+        const sorted = mergeOrder(folders || []);
         const stale = sorted.slice(1);
         return [
           `# Delete stale copies for: ${slug}`,
@@ -361,11 +355,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await chrome.storage.local.get(['tufhub_last_reconcile_result']);
       const duplicates = (res.tufhub_last_reconcile_result && res.tufhub_last_reconcile_result.duplicates) || [];
 
-      const toDelete = duplicates.flatMap(({ folders }) => sortNewestFirst(folders).slice(1));
+      const toDelete = duplicates.flatMap(({ folders }) => mergeOrder(folders).slice(1));
       if (toDelete.length === 0) return;
 
       const confirmLines = duplicates.flatMap(({ slug, folders }) => {
-        const sorted = sortNewestFirst(folders);
+        const sorted = mergeOrder(folders);
         const stale = sorted.slice(1);
         return stale.length ? [slug, ...stale.map(f => {
           const onlyHere = filesOnlyIn(f, [sorted[0]]);
@@ -1106,7 +1100,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const weeklyCheckToggle = document.getElementById('weekly-check-toggle');
 
-  // One line for the weekly read-only check: when it last ran and what it found, pointing at the panels above when there is something to fix.
+  // Summarizes the weekly read-only check in one line with when it last ran and what it found, pointing at the panels above when something needs fixing.
   function describeRepoCheck(result, enabled) {
     if (!result || !result.at) return { text: enabled ? 'weekly, not run yet' : 'off', tone: 'neutral' };
     const when = timeAgo(result.at);

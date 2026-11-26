@@ -62,7 +62,7 @@ export function placeProblem(route, known, problems) {
   return { folderPath: `${route.category}/${topic}/${slug}`, category: route.category, mainTopic: topic };
 }
 
-// Lower rank is kept first: a real track folder beats the General fallback bucket, which beats a container folder.
+// Lower rank is kept first. A real track folder beats the General fallback bucket, which beats a container folder.
 function folderRank(folderPath) {
   const { category, topic } = splitFolder(folderPath);
   if (isContainerSegment(category)) return 2;
@@ -72,7 +72,7 @@ function folderRank(folderPath) {
 
 /**
  * Orders a duplicate group so the folder to keep comes first.
- * NOTE: Newest alone is not enough: a re-solve from a saved list was the newest copy, so the old rule kept Core-Subject/General and deleted the real SQL folder (BUG-017).
+ * NOTE: Newest alone is not enough, because a re-solve from a saved list was the newest copy and the old rule kept Core-Subject/General while deleting the real SQL folder (BUG-017).
  * NOTE: Null timestamps sort last so a failed commit-date lookup is never mistaken for the oldest copy.
  */
 export function mergeOrder(folders) {
@@ -139,7 +139,7 @@ export function computeMergePlan(folders) {
 /**
  * Finds problem folders sitting in a topic folder that differs from a sibling topic folder only by letter case.
  * Returns [{ folderPath, relocateTo }]. The spelling holding the most problems is kept, ties go to the alphabetically first spelling.
- * NOTE: Grouping is case-only on purpose. Alias-equivalent names (old renamed topics) still move nothing, because Mohit approved merging case variants, not renaming topics.
+ * NOTE: Grouping is case-only on purpose. Alias-equivalent names (old renamed topics) move nothing, because merging them would need TUF's syllabus to confirm they are one category.
  * NOTE: Folders in `skip` (already part of a duplicate group) and moves whose destination already exists are left to the duplicate merge instead.
  */
 export function findTopicSplits(folderPaths, skip = new Set()) {

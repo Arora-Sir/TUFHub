@@ -15,7 +15,7 @@ const ALARM_PERIOD_MINUTES = 24 * 60;
 
 let running = null;
 
-// Unset means on: the check is read-only, and an opt-in default would never reach users who never open settings.
+// Unset means on. The check is read-only, and an opt-in default would never reach users who never open settings.
 export function isHealthCheckEnabled(value) {
   return value !== false;
 }
